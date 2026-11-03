@@ -67,17 +67,10 @@ public static class BuildEnemy
         var old = GameObject.Find("Enemy");
         if (old != null) Undo.DestroyObjectImmediate(old);
 
-        var enemy = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-        enemy.name = "Enemy";
+        var enemy = new GameObject("Enemy");
         enemy.transform.position = EnemySpawn;
-        enemy.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
+        enemy.transform.rotation = Quaternion.identity;
         Undo.RegisterCreatedObjectUndo(enemy, "Create enemy");
-
-        // The agent handles movement; a physical collider would only push the player around.
-        var col = enemy.GetComponent<Collider>();
-        if (col != null) Object.DestroyImmediate(col);
-
-        enemy.GetComponent<Renderer>().sharedMaterial = MakeMat("GB_Enemy", new Color(0.45f, 0.05f, 0.05f));
 
         var agent = Undo.AddComponent<NavMeshAgent>(enemy);
         agent.speed = 2f;
@@ -86,9 +79,50 @@ public static class BuildEnemy
         agent.stoppingDistance = 0f;
         agent.radius = 0.35f;
         agent.height = 1.8f;
-        agent.baseOffset = 1f;   // capsule pivot is its center
+        agent.baseOffset = 1f;
 
         var ai = Undo.AddComponent(enemy, aiType);
+
+        // Rebuild the actual character visual so the enemy keeps the full Woman design
+        // and the Animator sits on the child model, which is what EnemyAI expects.
+        var visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Animations/Woman.fbx");
+        if (visualPrefab != null)
+        {
+            var visual = PrefabUtility.InstantiatePrefab(visualPrefab, enemy.transform) as GameObject;
+            if (visual == null) visual = Object.Instantiate(visualPrefab, enemy.transform);
+            visual.name = "WomanModel";
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localRotation = Quaternion.identity;
+            visual.transform.localScale = Vector3.one;
+
+            var animator = visual.GetComponent<Animator>();
+            if (animator == null) animator = visual.GetComponentInChildren<Animator>();
+            if (animator == null) animator = Undo.AddComponent<Animator>(visual);
+            animator.applyRootMotion = false;
+            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+
+            var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/WomanController.controller");
+            if (controller != null) animator.runtimeAnimatorController = controller;
+
+            if (ai != null)
+            {
+                var so = new SerializedObject(ai);
+                so.FindProperty("anim").objectReferenceValue = animator;
+                so.ApplyModifiedProperties();
+            }
+        }
+        else
+        {
+            var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            fallback.name = "WomanModel";
+            fallback.transform.SetParent(enemy.transform, false);
+            fallback.transform.localPosition = Vector3.zero;
+            fallback.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
+            var col = fallback.GetComponent<Collider>();
+            if (col != null) Object.DestroyImmediate(col);
+            var rend = fallback.GetComponent<Renderer>();
+            if (rend != null) rend.sharedMaterial = MakeMat("GB_Enemy", new Color(0.45f, 0.05f, 0.05f));
+        }
 
         var so = new SerializedObject(ai);
         so.FindProperty("player").objectReferenceValue = player.transform;
