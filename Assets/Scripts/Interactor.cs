@@ -10,6 +10,15 @@ public class Interactor : MonoBehaviour
 
     void Update()
     {
+        if (player != null && player.IsHidden)
+        {
+            if (promptText != null)
+                promptText.text = "[E] Press E to Unhide";
+            if (Input.GetKeyDown(KeyCode.E))
+                player.Unhide();
+            return;
+        }
+
         IInteractable target = null;
 
         if (Physics.Raycast(transform.position, transform.forward, out RaycastHit hit,
@@ -18,7 +27,8 @@ public class Interactor : MonoBehaviour
             target = hit.collider.GetComponentInParent<IInteractable>();
         }
 
-        promptText.text = target != null ? $"[E] {target.Prompt}" : "";
+        if (promptText != null)
+            promptText.text = target != null ? $"[E] {target.Prompt}" : "";
 
         if (target != null && Input.GetKeyDown(KeyCode.E))
             target.Interact(player);

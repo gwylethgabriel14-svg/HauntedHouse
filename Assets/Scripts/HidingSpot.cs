@@ -10,23 +10,65 @@ public class HidingSpot : MonoBehaviour, IInteractable
  
     bool inside;
  
-    public string Prompt => inside ? "Leave hiding spot" : "Hide";
+    public bool IsOccupied => inside;
+    public string Prompt => inside ? "Press E to Unhide" : "Press E to Hide";
  
     public void Interact(PlayerController player)
     {
-        inside = !inside;
- 
-        Transform target = inside ? hidePoint : exitPoint;
- 
+        if (inside)
+        {
+            Leave(player);
+            return;
+        }
+
+        Hide(player);
+    }
+
+    public void Hide(PlayerController player)
+    {
+        inside = true;
+        MoveTo(player, hidePoint, true);
+        player.Hide(this);
+    }
+
+    public void Leave(PlayerController player)
+    {
+        inside = false;
+        MoveTo(player, exitPoint, false);
+        player.CurrentHidingSpot = null;
+        player.IsHidden = false;
+        player.CanMove = true;
+    }
+
+    void MoveTo(PlayerController player, Transform target, bool hide)
+    {
+        if (target == null)
+        {
+            target = hide ? hidePoint : exitPoint;
+        }
+
+        if (target == null)
+        {
+            player.IsHidden = hide;
+            player.CanMove = !hide;
+            return;
+        }
+
         var cc = player.GetComponent<CharacterController>();
-        cc.enabled = false;   // must disable to teleport a CharacterController
-        player.transform.position = target.position;
-        player.transform.rotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
-        if (player.cam != null) player.cam.localRotation = Quaternion.identity;
-        cc.enabled = true;
- 
-        player.IsHidden = inside;
-        player.CanMove = !inside;
+        if (cc != null)
+        {
+            cc.enabled = false;
+            player.transform.position = target.position;
+            player.transform.rotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
+            if (player.cam != null) player.cam.localRotation = Quaternion.identity;
+            cc.enabled = true;
+        }
+        else
+        {
+            player.transform.position = target.position;
+            player.transform.rotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
+            if (player.cam != null) player.cam.localRotation = Quaternion.identity;
+        }
     }
 }
  

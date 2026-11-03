@@ -24,10 +24,25 @@ public class PlayerController : MonoBehaviour
     public float noiseWalk = 6f;
     public float noiseRun = 14f;
 
+    [Header("Hide / peek")]
+    public float hidePeekYaw = 22f;
+    public float hidePeekPitch = 18f;
+
+    [Header("Stamina (sprint)")]
+    public float maxStamina = 6f;
+    public float staminaDrain = 1.15f;
+    public float staminaRegen = 0.85f;
+    public float staminaRegenDelay = 0.7f;
+    [Range(0.05f, 0.6f)] public float lowStaminaThreshold = 0.28f;
+
     public bool IsHidden { get; set; }
     public bool CanMove { get; set; } = true;
+    public HidingSpot CurrentHidingSpot { get; set; }
     public float CurrentNoise { get; private set; }
     public bool IsCrouching { get; private set; }
+    public float Stamina { get; private set; }
+    public float StaminaNormalized => maxStamina <= 0.01f ? 1f : Stamina / maxStamina;
+    public bool StaminaIsLow => StaminaNormalized <= lowStaminaThreshold;
 
     CharacterController cc;
     float pitch;
@@ -48,21 +63,48 @@ public class PlayerController : MonoBehaviour
         standHeight = cc.height;
         bottomY = cc.center.y - cc.height / 2f;
         camStandY = cam != null ? cam.localPosition.y : 0f;
+        Stamina = maxStamina;
 
         // keep the crouch capsule valid
         crouchHeight = Mathf.Clamp(crouchHeight, cc.radius * 2f + 0.1f, standHeight);
     }
 
+    float regenWait;
+    bool sprinting;
+    bool wasHidden;
+    float hideFacingYaw;
+
     void Update()
     {
-        if (!CanMove) { CurrentNoise = 0f; return; }
+        if (IsHidden && !wasHidden)
+            hideFacingYaw = transform.eulerAngles.y;
+        wasHidden = IsHidden;
 
-        // Look
-        float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
-        float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
-        pitch = Mathf.Clamp(pitch - my, -80f, 80f);
-        cam.localRotation = Quaternion.Euler(pitch, 0f, 0f);
-        transform.Rotate(Vector3.up * mx);
+        // Look stays available while hiding so the locker peek-gap is usable.
+        if (cam != null)
+        {
+            float mx = Input.GetAxis("Mouse X") * mouseSensitivity;
+            float my = Input.GetAxis("Mouse Y") * mouseSensitivity;
+            float minPitch = IsHidden ? -hidePeekPitch : -80f;
+            float maxPitch = IsHidden ? hidePeekPitch : 80f;
+            pitch = Mathf.Clamp(pitch - my, minPitch, maxPitch);
+            cam.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+            if (!IsHidden)
+                transform.Rotate(Vector3.up * mx);
+            else
+            {
+                float yaw = Mathf.DeltaAngle(hideFacingYaw, transform.eulerAngles.y);
+                float next = Mathf.Clamp(yaw + mx, -hidePeekYaw, hidePeekYaw);
+                transform.rotation = Quaternion.Euler(0f, hideFacingYaw + next, 0f);
+            }
+        }
+
+        if (!CanMove)
+        {
+            CurrentNoise = 0f;
+            RegenStamina(1f);
+            return;
+        }
 
         // Crouch input
         bool crouchDown = Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.C);
@@ -84,7 +126,19 @@ public class PlayerController : MonoBehaviour
         // Move
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");
-        bool run = Input.GetKey(KeyCode.LeftShift) && !crouch && v > 0f;
+        bool wantRun = Input.GetKey(KeyCode.LeftShift) && !crouch && v > 0f;
+        float minSprint = sprinting ? 0.04f * maxStamina : 0.18f * maxStamina;
+        bool run = wantRun && Stamina > minSprint;
+        sprinting = run;
+        if (run)
+        {
+            Stamina = Mathf.Max(0f, Stamina - staminaDrain * Time.deltaTime);
+            regenWait = staminaRegenDelay;
+        }
+        else
+        {
+            RegenStamina(1f);
+        }
         float speed = crouch ? crouchSpeed : (run ? runSpeed : walkSpeed);
 
         Vector3 move = (transform.right * h + transform.forward * v).normalized * speed;
@@ -97,6 +151,36 @@ public class PlayerController : MonoBehaviour
         // Noise for the enemy to hear
         bool moving = h != 0f || v != 0f;
         CurrentNoise = !moving ? 0f : (crouch ? noiseCrouch : (run ? noiseRun : noiseWalk));
+    }
+
+    public void Hide(HidingSpot spot)
+    {
+        CurrentHidingSpot = spot;
+        IsHidden = true;
+        CanMove = false;
+    }
+
+    public void Unhide()
+    {
+        if (CurrentHidingSpot != null)
+        {
+            CurrentHidingSpot.Leave(this);
+            return;
+        }
+
+        CurrentHidingSpot = null;
+        IsHidden = false;
+        CanMove = true;
+    }
+
+    void RegenStamina(float multiplier)
+    {
+        if (regenWait > 0f)
+        {
+            regenWait -= Time.deltaTime;
+            return;
+        }
+        Stamina = Mathf.Min(maxStamina, Stamina + staminaRegen * multiplier * Time.deltaTime);
     }
 
     // smoothly changes the capsule height and the camera height, keeping your feet on the floor
