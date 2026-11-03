@@ -82,13 +82,14 @@ public class EnemyAI : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
 
-        pc = player.GetComponent<PlayerController>();
-
-        // Find Animator on this object or its children.
-        if (anim == null)
+        if (player == null)
         {
-            anim = GetComponentInChildren<Animator>();
+            var p = GameObject.Find("Player");
+            if (p != null) player = p.transform;
         }
+        if (player != null) pc = player.GetComponent<PlayerController>();
+
+        EnsureAnimator();
 
         baseChase = chaseSpeed;
         basePatrol = patrolSpeed;
@@ -134,6 +135,8 @@ public class EnemyAI : MonoBehaviour
 
     void Update()
     {
+        if (player == null || pc == null) return;
+
         if (!agent.isOnNavMesh)
         {
             if (debugLogs && !warnedNoNavMesh)
@@ -290,6 +293,42 @@ public class EnemyAI : MonoBehaviour
         UpdateAnimations();
     }
 
+    void EnsureAnimator()
+    {
+        if (anim != null) return;
+
+        anim = GetComponentInChildren<Animator>(true);
+
+        foreach (var name in new[] { "WomanModel", "EnemyVisual", "GhostlyWoman", "CharacterModel", "Model" })
+        {
+            if (anim != null) break;
+            var child = transform.Find(name);
+            if (child != null) anim = child.GetComponent<Animator>();
+        }
+
+        if (anim == null)
+        {
+            var controller = Resources.Load<RuntimeAnimatorController>("WomanController");
+            if (controller != null)
+            {
+                anim = gameObject.AddComponent<Animator>();
+                anim.runtimeAnimatorController = controller;
+            }
+        }
+
+        if (anim != null)
+        {
+            anim.applyRootMotion = false;
+            anim.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+
+            if (anim.runtimeAnimatorController == null)
+            {
+                var fallback = Resources.Load<RuntimeAnimatorController>("WomanController");
+                if (fallback != null) anim.runtimeAnimatorController = fallback;
+            }
+        }
+    }
+
     // Updates the Animator parameters.
     void UpdateAnimations()
     {
@@ -298,9 +337,15 @@ public class EnemyAI : MonoBehaviour
         bool isWalking =
             !waiting &&
             !hasCaughtPlayer &&
-            agent.velocity.magnitude > 0.1f;
+            agent.velocity.magnitude > 0.15f;
 
         anim.SetBool(walkingParameter, isWalking);
+        if (state == State.Chase)
+            anim.speed = 1.15f;
+        else if (isWalking)
+            anim.speed = Mathf.Clamp(agent.speed / Mathf.Max(0.5f, patrolSpeed), 0.85f, 1.4f);
+        else
+            anim.speed = 1f;
     }
 
     bool Arrived(float dist)

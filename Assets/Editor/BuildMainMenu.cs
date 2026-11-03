@@ -48,7 +48,7 @@ public static class BuildMainMenu
     //  BUILD MAIN MENU
     // ======================================================================
 
-    [MenuItem("Haunted House/BUILD MAIN MENU (styled)")]
+    // [MenuItem("Haunted House/BUILD MAIN MENU (styled)")]
     public static void Build()
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode)

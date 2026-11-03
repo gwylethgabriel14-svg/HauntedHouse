@@ -147,6 +147,23 @@ public static class ApplyGameplayPolish
         return null;
     }
 
+    static void ApplyEnemyGhostTint(GameObject model, Color color)
+    {
+        if (model == null) return;
+
+        var renderers = model.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return;
+
+        var mat = MakeLit("M_EnemyGhost", color, 0.25f, null);
+        foreach (var r in renderers)
+        {
+            var mats = r.sharedMaterials;
+            for (int i = 0; i < mats.Length; i++)
+                mats[i] = mat;
+            r.sharedMaterials = mats;
+        }
+    }
+
     public static void AttachEnemyVisual()
     {
         var enemy = GameObject.Find("Enemy");
@@ -156,6 +173,15 @@ public static class ApplyGameplayPolish
             return;
         }
 
+        foreach (var name in new[] { "WomanModel", "EnemyVisual", "GhostlyWoman", "CharacterModel", "Model" })
+        {
+            var old = enemy.transform.Find(name);
+            if (old != null)
+            {
+                Undo.DestroyObjectImmediate(old.gameObject);
+            }
+        }
+
         var modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(WomanPath);
         var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(ControllerPath);
         if (modelPrefab == null)
@@ -163,9 +189,6 @@ public static class ApplyGameplayPolish
             Debug.LogWarning("Could not load " + WomanPath);
             return;
         }
-
-        var old = enemy.transform.Find("WomanModel");
-        if (old != null) Undo.DestroyObjectImmediate(old.gameObject);
 
         var model = PrefabUtility.InstantiatePrefab(modelPrefab, enemy.transform) as GameObject;
         if (model == null) model = Object.Instantiate(modelPrefab, enemy.transform);
@@ -177,6 +200,7 @@ public static class ApplyGameplayPolish
         var agent = enemy.GetComponent<NavMeshAgent>();
         float baseOffset = agent != null ? agent.baseOffset : 1f;
         FitCharacter(model, enemy.transform, baseOffset, 1.78f);
+        ApplyEnemyGhostTint(model, new Color(0.62f, 0.68f, 0.72f, 1f));
 
         var cap = enemy.GetComponent<Renderer>();
         if (cap != null) cap.enabled = false;
@@ -200,6 +224,14 @@ public static class ApplyGameplayPolish
         var avatar = FindAvatar(WomanPath);
         if (avatar != null) anim.avatar = avatar;
 
+        var ai = enemy.GetComponent<EnemyAI>();
+        if (ai != null)
+        {
+            var so = new SerializedObject(ai);
+            so.FindProperty("anim").objectReferenceValue = anim;
+            so.ApplyModifiedProperties();
+        }
+
         var knife = enemy.transform.Find("Knife_Held");
         var hand = FindBone(model.transform, "RightHand");
         if (knife != null && hand != null)
@@ -207,14 +239,6 @@ public static class ApplyGameplayPolish
             Undo.SetTransformParent(knife, hand, "Parent knife");
             knife.localPosition = new Vector3(0.02f, 0.08f, 0.04f);
             knife.localRotation = Quaternion.Euler(0f, 90f, 90f);
-        }
-
-        var ai = enemy.GetComponent<EnemyAI>();
-        if (ai != null)
-        {
-            var so = new SerializedObject(ai);
-            so.FindProperty("anim").objectReferenceValue = anim;
-            so.ApplyModifiedProperties();
         }
     }
 

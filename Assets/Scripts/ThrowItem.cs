@@ -9,10 +9,17 @@ public class ThrowItem : MonoBehaviour
 
     void Update()
     {
+        var pc = GetComponent<PlayerController>();
+        if (pc != null && pc.IsHidden)
+            return;
+
         if (!Input.GetKeyDown(KeyCode.G) || bottles <= 0) return;
 
         bottles--;
         var b = Instantiate(bottlePrefab, cam.position + cam.forward * 0.6f, cam.rotation);
-        b.GetComponent<Rigidbody>().AddForce(cam.forward * throwForce, ForceMode.VelocityChange);
+        ItemPickup.EnsureBottleVisual(b);
+        var rb = b.GetComponent<Rigidbody>();
+        if (rb != null)
+            rb.AddForce(cam.forward * throwForce, ForceMode.VelocityChange);
     }
 }

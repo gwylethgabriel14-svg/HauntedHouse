@@ -37,11 +37,30 @@ public static class BuildEnemy
     [MenuItem("Haunted House/Create Enemy & Waypoints")]
     public static void Build()
     {
+        RebuildEnemyAndWaypoints();
+    }
+
+    [MenuItem("Haunted House/Rebuild Enemy Safe")]
+    public static void RebuildEnemySafe()
+    {
+        RebuildEnemyAndWaypoints();
+    }
+
+    static void RebuildEnemyAndWaypoints()
+    {
         var player = GameObject.Find("Player");
-        if (player == null) { Debug.LogError("No object named 'Player' in the scene."); return; }
+        if (player == null)
+        {
+            Debug.LogError("No object named 'Player' in the scene.");
+            return;
+        }
 
         var aiType = System.Type.GetType("EnemyAI, Assembly-CSharp");
-        if (aiType == null) { Debug.LogError("EnemyAI.cs not found. Import all scripts first."); return; }
+        if (aiType == null)
+        {
+            Debug.LogError("EnemyAI.cs not found. Import all scripts first.");
+            return;
+        }
 
         // ---- Waypoints ----
         var wpRoot = GameObject.Find("Waypoints");
@@ -50,6 +69,7 @@ public static class BuildEnemy
             wpRoot = new GameObject("Waypoints");
             Undo.RegisterCreatedObjectUndo(wpRoot, "Create waypoints");
         }
+
         for (int i = wpRoot.transform.childCount - 1; i >= 0; i--)
             Undo.DestroyObjectImmediate(wpRoot.transform.GetChild(i).gameObject);
 
@@ -63,9 +83,10 @@ public static class BuildEnemy
             wps[i] = g.transform;
         }
 
-        // ---- Enemy ----
-        var old = GameObject.Find("Enemy");
-        if (old != null) Undo.DestroyObjectImmediate(old);
+        // ---- Enemy root ----
+        var oldEnemy = GameObject.Find("Enemy");
+        if (oldEnemy != null)
+            Undo.DestroyObjectImmediate(oldEnemy);
 
         var enemy = new GameObject("Enemy");
         enemy.transform.position = EnemySpawn;
@@ -83,60 +104,95 @@ public static class BuildEnemy
 
         var ai = Undo.AddComponent(enemy, aiType);
 
-        // Rebuild the actual character visual so the enemy keeps the full Woman design
-        // and the Animator sits on the child model, which is what EnemyAI expects.
-        var visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Animations/Woman.fbx");
+        // ---- Visual child (WomanModel) ----
+        var visualPrefab = FindEnemyVisualPrefab();
+        GameObject visual = null;
+
         if (visualPrefab != null)
         {
-            var visual = PrefabUtility.InstantiatePrefab(visualPrefab, enemy.transform) as GameObject;
-            if (visual == null) visual = Object.Instantiate(visualPrefab, enemy.transform);
+            visual = PrefabUtility.InstantiatePrefab(visualPrefab, enemy.transform) as GameObject;
+            if (visual == null)
+                visual = Object.Instantiate(visualPrefab, enemy.transform);
+
             visual.name = "WomanModel";
             visual.transform.localPosition = Vector3.zero;
             visual.transform.localRotation = Quaternion.identity;
             visual.transform.localScale = Vector3.one;
 
-            var animator = visual.GetComponent<Animator>();
-            if (animator == null) animator = visual.GetComponentInChildren<Animator>();
-            if (animator == null) animator = Undo.AddComponent<Animator>(visual);
-            animator.applyRootMotion = false;
-            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
-
-            var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/WomanController.controller");
-            if (controller != null) animator.runtimeAnimatorController = controller;
-
-            if (ai != null)
+            if (visual.GetComponentsInChildren<Renderer>().Length > 0)
             {
-                var so = new SerializedObject(ai);
-                so.FindProperty("anim").objectReferenceValue = animator;
-                so.ApplyModifiedProperties();
+                AlignModelToEnemy(visual, enemy.transform, agent.baseOffset, 1.78f);
             }
+
+            ApplyModelColor(visual, new Color(0.62f, 0.68f, 0.72f, 1f));
         }
         else
         {
-            var fallback = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            fallback.name = "WomanModel";
-            fallback.transform.SetParent(enemy.transform, false);
-            fallback.transform.localPosition = Vector3.zero;
-            fallback.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
-            var col = fallback.GetComponent<Collider>();
+            visual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            visual.name = "WomanModel";
+            visual.transform.SetParent(enemy.transform, false);
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
+
+            var col = visual.GetComponent<Collider>();
             if (col != null) Object.DestroyImmediate(col);
-            var rend = fallback.GetComponent<Renderer>();
-            if (rend != null) rend.sharedMaterial = MakeMat("GB_Enemy", new Color(0.45f, 0.05f, 0.05f));
+
+            var rend = visual.GetComponent<Renderer>();
+            if (rend != null)
+                rend.sharedMaterial = MakeMat("GB_Enemy", new Color(0.62f, 0.68f, 0.72f, 1f));
+
+            Debug.LogWarning("No woman model prefab was found in the project. A fallback capsule was used so the enemy still exists.");
         }
 
-        var so = new SerializedObject(ai);
-        so.FindProperty("player").objectReferenceValue = player.transform;
+        var animator = visual != null ? visual.GetComponent<Animator>() : null;
+        if (animator == null && visual != null)
+            animator = visual.GetComponentInChildren<Animator>();
 
-        var wpProp = so.FindProperty("waypoints");
+        var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/WomanController.controller");
+        var riggedWomanAvatar = AssetDatabase.LoadAssetAtPath<Avatar>("Assets/Animations/Woman.fbx");
+
+        if (animator == null && controller != null && visual != null)
+        {
+            animator = Undo.AddComponent<Animator>(visual);
+        }
+
+        if (animator != null)
+        {
+            animator.applyRootMotion = false;
+            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+
+            if (controller != null)
+                animator.runtimeAnimatorController = controller;
+
+            if (animator.avatar == null && riggedWomanAvatar != null)
+                animator.avatar = riggedWomanAvatar;
+        }
+
+        if (ai != null && animator != null)
+        {
+            var so = new SerializedObject(ai);
+            so.FindProperty("anim").objectReferenceValue = animator;
+            so.ApplyModifiedProperties();
+        }
+
+        // ---- EnemyAI refs ----
+        var enemySo = new SerializedObject(ai);
+        enemySo.FindProperty("player").objectReferenceValue = player.transform;
+
+        var wpProp = enemySo.FindProperty("waypoints");
         wpProp.arraySize = wps.Length;
         for (int i = 0; i < wps.Length; i++)
             wpProp.GetArrayElementAtIndex(i).objectReferenceValue = wps[i];
 
-        int layer = LayerMask.NameToLayer("Obstacle");
-        if (layer < 0) Debug.LogWarning("Layer 'Obstacle' not found: the enemy will see through walls until you add it and rebuild the house.");
-        var maskProp = so.FindProperty("obstacleMask.m_Bits");
-        if (maskProp != null) maskProp.intValue = layer >= 0 ? (1 << layer) : 0;
-        so.ApplyModifiedProperties();
+        var obstacles = LayerMask.NameToLayer("Obstacle");
+        if (obstacles < 0)
+            Debug.LogWarning("Layer 'Obstacle' not found: the enemy will see through walls until you add it and rebuild the house.");
+
+        var maskProp = enemySo.FindProperty("obstacleMask.m_Bits");
+        if (maskProp != null)
+            maskProp.intValue = obstacles >= 0 ? (1 << obstacles) : 0;
+
+        enemySo.ApplyModifiedProperties();
 
         // ---- GameManager.enemy ----
         var gm = GameObject.Find("GameManager");
@@ -152,11 +208,75 @@ public static class BuildEnemy
                 gso.ApplyModifiedProperties();
             }
         }
-        else Debug.LogWarning("GameManager object or script not found: assign the Enemy slot by hand.");
+        else
+        {
+            Debug.LogWarning("GameManager object or script not found: assign the Enemy slot by hand.");
+        }
 
         EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
         Selection.activeGameObject = enemy;
-        Debug.Log("Enemy and " + wps.Length + " waypoints created. Press Play.");
+        Debug.Log("Enemy rebuilt with a root/child hierarchy and " + wps.Length + " waypoints. Check hierarchy: Enemy > WomanModel");
+    }
+
+    static GameObject FindEnemyVisualPrefab()
+    {
+        string[] candidates =
+        {
+            "Assets/Animations/Woman.fbx",
+            "Assets/Animations/Woman.prefab",
+            "Assets/GhostlyWoman/Womann.prefab",
+            "Assets/GhostlyWoman/Womann.obj"
+        };
+
+        foreach (var path in candidates)
+        {
+            var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go != null) return go;
+        }
+
+        return null;
+    }
+
+    static void AlignModelToEnemy(GameObject model, Transform enemyRoot, float baseOffset, float targetHeight)
+    {
+        var renderers = model.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0)
+            return;
+
+        Bounds bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            bounds.Encapsulate(renderers[i].bounds);
+
+        float height = Mathf.Max(0.01f, bounds.size.y);
+        float scale = targetHeight / height;
+        model.transform.localScale = Vector3.Scale(model.transform.localScale, new Vector3(scale, scale, scale));
+
+        renderers = model.GetComponentsInChildren<Renderer>(true);
+        bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            bounds.Encapsulate(renderers[i].bounds);
+
+        Vector3 feet = new Vector3(enemyRoot.position.x, enemyRoot.position.y - baseOffset, enemyRoot.position.z);
+        Vector3 delta = feet - new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+        model.transform.position += delta;
+        model.transform.localPosition = new Vector3(model.transform.localPosition.x, 0f, model.transform.localPosition.z);
+    }
+
+    static void ApplyModelColor(GameObject model, Color color)
+    {
+        if (model == null) return;
+
+        var renderers = model.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return;
+
+        var mat = MakeMat("M_EnemyGhost", color);
+        foreach (var renderer in renderers)
+        {
+            var mats = renderer.sharedMaterials;
+            for (int i = 0; i < mats.Length; i++)
+                mats[i] = mat;
+            renderer.sharedMaterials = mats;
+        }
     }
 
     static Material MakeMat(string name, Color c)
