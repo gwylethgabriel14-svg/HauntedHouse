@@ -54,19 +54,29 @@ public class HidingSpot : MonoBehaviour, IInteractable
             return;
         }
 
+        Quaternion targetRotation = target.rotation;
+        if (hide && hidePoint != null && exitPoint != null)
+        {
+            Vector3 front = exitPoint.position - hidePoint.position;
+            if (front.sqrMagnitude > 0.0001f)
+            {
+                targetRotation = Quaternion.LookRotation(front.normalized, Vector3.up);
+            }
+        }
+
         var cc = player.GetComponent<CharacterController>();
         if (cc != null)
         {
             cc.enabled = false;
             player.transform.position = target.position;
-            player.transform.rotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
+            player.transform.rotation = targetRotation;
             if (player.cam != null) player.cam.localRotation = Quaternion.identity;
             cc.enabled = true;
         }
         else
         {
             player.transform.position = target.position;
-            player.transform.rotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
+            player.transform.rotation = targetRotation;
             if (player.cam != null) player.cam.localRotation = Quaternion.identity;
         }
     }

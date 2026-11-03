@@ -25,8 +25,8 @@ public class PlayerController : MonoBehaviour
     public float noiseRun = 14f;
 
     [Header("Hide / peek")]
-    public float hidePeekYaw = 22f;
-    public float hidePeekPitch = 18f;
+    public float hidePeekYaw = 30f;
+    public float hidePeekPitch = 24f;
 
     [Header("Stamina (sprint)")]
     public float maxStamina = 6f;
@@ -158,6 +158,18 @@ public class PlayerController : MonoBehaviour
         CurrentHidingSpot = spot;
         IsHidden = true;
         CanMove = false;
+
+        if (spot != null)
+        {
+            var anchor = spot.hidePoint != null ? spot.hidePoint : spot.transform;
+            hideFacingYaw = anchor.eulerAngles.y;
+            transform.rotation = Quaternion.Euler(0f, hideFacingYaw, 0f);
+            if (cam != null)
+            {
+                cam.localRotation = Quaternion.Euler(0f, 0f, 0f);
+                pitch = 0f;
+            }
+        }
     }
 
     public void Unhide()

@@ -48,7 +48,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             body.name = "Body";
             body.transform.SetParent(root.transform, false);
-            body.transform.localScale = new Vector3(0.23f, 0.12f, 0.23f);
+            body.transform.localScale = new Vector3(0.30f, 0.12f, 0.30f);
             body.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
             var mat = new Material(PreferredShader());
@@ -61,7 +61,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             cap.name = "Cap";
             cap.transform.SetParent(root.transform, false);
             cap.transform.localPosition = new Vector3(0f, 0.08f, 0f);
-            cap.transform.localScale = new Vector3(0.16f, 0.04f, 0.16f);
+            cap.transform.localScale = new Vector3(0.20f, 0.04f, 0.20f);
             cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
             var capMat = new Material(PreferredShader());
             capMat.color = new Color(0.65f, 0.65f, 0.65f, 1f);
