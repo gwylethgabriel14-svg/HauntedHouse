@@ -15,6 +15,13 @@ public class Page : MonoBehaviour, IInteractable
         Destroy(gameObject);
     }
 
+    static Shader PreferredShader()
+    {
+        return Shader.Find("Universal Render Pipeline/Lit")
+            ?? Shader.Find("URP/Lit")
+            ?? Shader.Find("Standard");
+    }
+
     void EnsurePageVisual()
     {
         if (transform.Find("PageVisual") != null) return;
@@ -29,7 +36,7 @@ public class Page : MonoBehaviour, IInteractable
         quad.transform.localRotation = Quaternion.identity;
 
         var tex = MakeMusicTexture();
-        var mat = new Material(Shader.Find("Standard"));
+        var mat = new Material(PreferredShader());
         mat.mainTexture = tex;
         mat.color = Color.white;
 

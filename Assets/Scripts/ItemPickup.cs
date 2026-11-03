@@ -6,6 +6,13 @@ public class ItemPickup : MonoBehaviour, IInteractable
     public Type type;
     public float batteryAmount = 40f;
 
+    static Shader PreferredShader()
+    {
+        return Shader.Find("Universal Render Pipeline/Lit")
+            ?? Shader.Find("URP/Lit")
+            ?? Shader.Find("Standard");
+    }
+
     void Awake()
     {
         EnsurePickupVisual();
@@ -44,7 +51,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             body.transform.localScale = new Vector3(0.23f, 0.12f, 0.23f);
             body.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
-            var mat = new Material(Shader.Find("Standard"));
+            var mat = new Material(PreferredShader());
             mat.color = new Color(0.95f, 0.82f, 0.22f, 1f);
             var r = body.GetComponent<Renderer>();
             r.sharedMaterial = mat;
@@ -56,7 +63,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             cap.transform.localPosition = new Vector3(0f, 0.08f, 0f);
             cap.transform.localScale = new Vector3(0.16f, 0.04f, 0.16f);
             cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            var capMat = new Material(Shader.Find("Standard"));
+            var capMat = new Material(PreferredShader());
             capMat.color = new Color(0.65f, 0.65f, 0.65f, 1f);
             cap.GetComponent<Renderer>().sharedMaterial = capMat;
             DestroyImmediate(cap.GetComponent<Collider>());
@@ -67,7 +74,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             stripe.transform.localPosition = new Vector3(0f, -0.02f, 0f);
             stripe.transform.localScale = new Vector3(0.18f, 0.02f, 0.18f);
             stripe.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-            var stripeMat = new Material(Shader.Find("Standard"));
+            var stripeMat = new Material(PreferredShader());
             stripeMat.color = new Color(0.18f, 0.72f, 0.26f, 1f);
             stripe.GetComponent<Renderer>().sharedMaterial = stripeMat;
             DestroyImmediate(stripe.GetComponent<Collider>());
@@ -79,7 +86,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             body.transform.SetParent(root.transform, false);
             body.transform.localScale = new Vector3(0.2f, 0.38f, 0.2f);
             body.transform.localRotation = Quaternion.identity;
-            var glassMat = new Material(Shader.Find("Standard"));
+            var glassMat = new Material(PreferredShader());
             glassMat.color = new Color(0.22f, 0.76f, 0.38f, 0.68f);
             glassMat.SetFloat("_Mode", 3f);
             glassMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
@@ -93,7 +100,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             neck.transform.SetParent(root.transform, false);
             neck.transform.localPosition = new Vector3(0f, 0.25f, 0f);
             neck.transform.localScale = new Vector3(0.09f, 0.12f, 0.09f);
-            var neckMat = new Material(Shader.Find("Standard"));
+            var neckMat = new Material(PreferredShader());
             neckMat.color = new Color(0.15f, 0.14f, 0.12f, 1f);
             neck.GetComponent<Renderer>().sharedMaterial = neckMat;
             DestroyImmediate(neck.GetComponent<Collider>());
@@ -103,7 +110,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             cork.transform.SetParent(root.transform, false);
             cork.transform.localPosition = new Vector3(0f, 0.36f, 0f);
             cork.transform.localScale = new Vector3(0.09f, 0.06f, 0.09f);
-            var corkMat = new Material(Shader.Find("Standard"));
+            var corkMat = new Material(PreferredShader());
             corkMat.color = new Color(0.54f, 0.38f, 0.19f, 1f);
             cork.GetComponent<Renderer>().sharedMaterial = corkMat;
             DestroyImmediate(cork.GetComponent<Collider>());
@@ -113,7 +120,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
             label.transform.SetParent(root.transform, false);
             label.transform.localPosition = new Vector3(0f, 0f, 0.11f);
             label.transform.localScale = new Vector3(0.2f, 0.26f, 1f);
-            var labelMat = new Material(Shader.Find("Standard"));
+            var labelMat = new Material(PreferredShader());
             labelMat.color = new Color(0.9f, 0.88f, 0.74f, 1f);
             label.GetComponent<Renderer>().sharedMaterial = labelMat;
             DestroyImmediate(label.GetComponent<Collider>());
