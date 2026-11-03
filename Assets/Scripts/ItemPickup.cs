@@ -6,6 +6,8 @@ public class ItemPickup : MonoBehaviour, IInteractable
     public Type type;
     public float batteryAmount = 40f;
 
+    public static readonly Color BottleGlassColor = new Color(0.22f, 0.76f, 0.38f, 1f);
+
     static Shader PreferredShader()
     {
         return Shader.Find("Universal Render Pipeline/Lit")
@@ -34,6 +36,64 @@ public class ItemPickup : MonoBehaviour, IInteractable
         }
 
         Destroy(gameObject);
+    }
+
+    public static void EnsureBottleVisual(GameObject root)
+    {
+        if (root == null) return;
+        if (root.transform.Find("BottleVis") != null) return;
+
+        var visual = new GameObject("BottleVis");
+        visual.transform.SetParent(root.transform, false);
+
+        var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        body.name = "Body";
+        body.transform.SetParent(visual.transform, false);
+        body.transform.localScale = new Vector3(0.2f, 0.38f, 0.2f);
+        body.transform.localRotation = Quaternion.identity;
+        var glassMat = new Material(PreferredShader());
+        glassMat.color = BottleGlassColor;
+        glassMat.SetFloat("_Mode", 3f);
+        glassMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        glassMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        glassMat.SetInt("_ZWrite", 0);
+        body.GetComponent<Renderer>().sharedMaterial = glassMat;
+        DestroyImmediate(body.GetComponent<Collider>());
+
+        var neck = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        neck.name = "Neck";
+        neck.transform.SetParent(visual.transform, false);
+        neck.transform.localPosition = new Vector3(0f, 0.25f, 0f);
+        neck.transform.localScale = new Vector3(0.09f, 0.12f, 0.09f);
+        var neckMat = new Material(PreferredShader());
+        neckMat.color = new Color(0.15f, 0.14f, 0.12f, 1f);
+        neck.GetComponent<Renderer>().sharedMaterial = neckMat;
+        DestroyImmediate(neck.GetComponent<Collider>());
+
+        var cork = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        cork.name = "Cork";
+        cork.transform.SetParent(visual.transform, false);
+        cork.transform.localPosition = new Vector3(0f, 0.36f, 0f);
+        cork.transform.localScale = new Vector3(0.09f, 0.06f, 0.09f);
+        var corkMat = new Material(PreferredShader());
+        corkMat.color = new Color(0.54f, 0.38f, 0.19f, 1f);
+        cork.GetComponent<Renderer>().sharedMaterial = corkMat;
+        DestroyImmediate(cork.GetComponent<Collider>());
+
+        var label = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        label.name = "Label";
+        label.transform.SetParent(visual.transform, false);
+        label.transform.localPosition = new Vector3(0f, 0f, 0.11f);
+        label.transform.localScale = new Vector3(0.2f, 0.26f, 1f);
+        var labelMat = new Material(PreferredShader());
+        labelMat.color = new Color(0.9f, 0.88f, 0.74f, 1f);
+        label.GetComponent<Renderer>().sharedMaterial = labelMat;
+        DestroyImmediate(label.GetComponent<Collider>());
+
+        var mr = root.GetComponent<MeshRenderer>();
+        if (mr != null) mr.enabled = false;
+        var mf = root.GetComponent<MeshFilter>();
+        if (mf != null) mf.sharedMesh = null;
     }
 
     void EnsurePickupVisual()
@@ -81,49 +141,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
         }
         else
         {
-            var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            body.name = "Body";
-            body.transform.SetParent(root.transform, false);
-            body.transform.localScale = new Vector3(0.2f, 0.38f, 0.2f);
-            body.transform.localRotation = Quaternion.identity;
-            var glassMat = new Material(PreferredShader());
-            glassMat.color = new Color(0.22f, 0.76f, 0.38f, 0.68f);
-            glassMat.SetFloat("_Mode", 3f);
-            glassMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            glassMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            glassMat.SetInt("_ZWrite", 0);
-            body.GetComponent<Renderer>().sharedMaterial = glassMat;
-            DestroyImmediate(body.GetComponent<Collider>());
-
-            var neck = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            neck.name = "Neck";
-            neck.transform.SetParent(root.transform, false);
-            neck.transform.localPosition = new Vector3(0f, 0.25f, 0f);
-            neck.transform.localScale = new Vector3(0.09f, 0.12f, 0.09f);
-            var neckMat = new Material(PreferredShader());
-            neckMat.color = new Color(0.15f, 0.14f, 0.12f, 1f);
-            neck.GetComponent<Renderer>().sharedMaterial = neckMat;
-            DestroyImmediate(neck.GetComponent<Collider>());
-
-            var cork = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            cork.name = "Cork";
-            cork.transform.SetParent(root.transform, false);
-            cork.transform.localPosition = new Vector3(0f, 0.36f, 0f);
-            cork.transform.localScale = new Vector3(0.09f, 0.06f, 0.09f);
-            var corkMat = new Material(PreferredShader());
-            corkMat.color = new Color(0.54f, 0.38f, 0.19f, 1f);
-            cork.GetComponent<Renderer>().sharedMaterial = corkMat;
-            DestroyImmediate(cork.GetComponent<Collider>());
-
-            var label = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            label.name = "Label";
-            label.transform.SetParent(root.transform, false);
-            label.transform.localPosition = new Vector3(0f, 0f, 0.11f);
-            label.transform.localScale = new Vector3(0.2f, 0.26f, 1f);
-            var labelMat = new Material(PreferredShader());
-            labelMat.color = new Color(0.9f, 0.88f, 0.74f, 1f);
-            label.GetComponent<Renderer>().sharedMaterial = labelMat;
-            DestroyImmediate(label.GetComponent<Collider>());
+            EnsureBottleVisual(root);
         }
 
         var mr = GetComponent<MeshRenderer>();

@@ -54,15 +54,17 @@ public class HidingSpot : MonoBehaviour, IInteractable
             return;
         }
 
-        Quaternion targetRotation = target.rotation;
+        Vector3 front = transform.forward;
         if (hide && hidePoint != null && exitPoint != null)
         {
-            Vector3 front = exitPoint.position - hidePoint.position;
-            if (front.sqrMagnitude > 0.0001f)
-            {
-                targetRotation = Quaternion.LookRotation(front.normalized, Vector3.up);
-            }
+            Vector3 dir = exitPoint.position - hidePoint.position;
+            if (dir.sqrMagnitude > 0.0001f)
+                front = dir.normalized;
         }
+        if (front.sqrMagnitude <= 0.0001f)
+            front = transform.forward;
+
+        Quaternion targetRotation = Quaternion.LookRotation(front.normalized, Vector3.up);
 
         var cc = player.GetComponent<CharacterController>();
         if (cc != null)

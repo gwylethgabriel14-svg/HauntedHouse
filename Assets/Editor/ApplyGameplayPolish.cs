@@ -46,7 +46,7 @@ public static class ApplyGameplayPolish
             EnsureFolder(GenDir);
             var sheet = MakeSheetMusicTexture();
             var sheetMat = MakeLit("M_SheetMusic", Color.white, 0.12f, sheet);
-            var glass = MakeGlass("M_BottleGlass", new Color(0.18f, 0.42f, 0.28f, 0.55f));
+            var glass = MakeGlass("M_BottleGlass", new Color(0.22f, 0.76f, 0.38f, 0.8f));
             var cork = MakeLit("M_BottleCork", new Color(0.42f, 0.28f, 0.14f), 0.2f, null);
             var neck = MakeLit("M_BottleDark", new Color(0.08f, 0.16f, 0.1f, 1f), 0.75f, null);
             var label = MakeLit("M_BottleLabel", Color.white, 0.18f, MakeBottleLabelTexture());

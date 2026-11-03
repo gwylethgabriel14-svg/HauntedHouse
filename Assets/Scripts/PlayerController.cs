@@ -25,8 +25,8 @@ public class PlayerController : MonoBehaviour
     public float noiseRun = 14f;
 
     [Header("Hide / peek")]
-    public float hidePeekYaw = 30f;
-    public float hidePeekPitch = 24f;
+    public float hidePeekYaw = 3f;
+    public float hidePeekPitch = 2.5f;
 
     [Header("Stamina (sprint)")]
     public float maxStamina = 6f;
@@ -161,8 +161,25 @@ public class PlayerController : MonoBehaviour
 
         if (spot != null)
         {
-            var anchor = spot.hidePoint != null ? spot.hidePoint : spot.transform;
-            hideFacingYaw = anchor.eulerAngles.y;
+            Vector3 dir = Vector3.forward;
+            if (spot.exitPoint != null && spot.hidePoint != null)
+            {
+                dir = spot.exitPoint.position - spot.hidePoint.position;
+            }
+            else if (spot.exitPoint != null)
+            {
+                dir = spot.exitPoint.position - transform.position;
+            }
+            else if (spot.hidePoint != null)
+            {
+                dir = spot.hidePoint.forward;
+            }
+
+            if (dir.sqrMagnitude > 0.0001f)
+                hideFacingYaw = Quaternion.LookRotation(dir.normalized, Vector3.up).eulerAngles.y;
+            else
+                hideFacingYaw = transform.eulerAngles.y;
+
             transform.rotation = Quaternion.Euler(0f, hideFacingYaw, 0f);
             if (cam != null)
             {
