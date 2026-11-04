@@ -516,25 +516,6 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    // Updates the Animator parameters.
-    void UpdateAnimations()
-    {
-        if (anim == null) return;
-
-        bool isWalking =
-            !waiting &&
-            !hasCaughtPlayer &&
-            agent.velocity.magnitude > 0.15f;
-
-        anim.SetBool(walkingParameter, isWalking);
-        if (state == State.Chase)
-            anim.speed = 1.15f;
-        else if (isWalking)
-            anim.speed = Mathf.Clamp(agent.speed / Mathf.Max(0.5f, patrolSpeed), 0.85f, 1.4f);
-        else
-            anim.speed = 1f;
-    }
-
     bool Arrived(float dist)
     {
         return !agent.pathPending &&
