@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -21,12 +22,30 @@ public class EnemyAI : MonoBehaviour
     public float sightAngle = 100f;
     public float catchDistance = 1.6f;
 
+    [Header("Multi-floor (taas/baba)")]
+    [Tooltip("Max na pagkakaiba ng taas para mahuli ang player. Mas mataas dito = ibang palapag, hindi pa abot.")]
+    public float catchHeight = 1.5f;
+    [Tooltip("Max na pagkakaiba ng taas para marinig ang yabag ng player.")]
+    public float hearHeight = 2.5f;
+    [Tooltip("Max na pagkakaiba ng taas para makita ang player.")]
+    public float sightHeight = 3.5f;
+
     [Header("Timers")]
     public float loseSightTime = 3f;
     public float searchTime = 6f;
 
     [Header("Fair start")]
     public float startDelay = 8f;
+
+    [Header("Random spawn")]
+    [Tooltip("Kapag naka-on, random ang pwesto ng enemy sa simula ng laro (hindi kung saan lang siya nakalagay sa scene).")]
+    public bool randomSpawn = true;
+    [Tooltip("Pinakamalapit na distansya mula sa player (bedroom) na pwede siyang mag-spawn.")]
+    public float minSpawnDistance = 25f;
+    [Tooltip("Opsyonal. Kung may nakalagay dito, ito lang ang pagpipilian. Kung wala, ang mga waypoint ang gagamitin.")]
+    public Transform[] spawnPoints;
+    [Tooltip("Gagamitin lang kung walang spawn points at walang waypoints.")]
+    public float fallbackSpawnRadius = 60f;
 
     [Header("Wandering")]
     public Vector2 idleTime = new Vector2(2f, 5f);
@@ -42,8 +61,13 @@ public class EnemyAI : MonoBehaviour
 
     [Header("Animations")]
     public Animator anim;
-    public string walkingParameter = "IsWalking";
-    public string attackParameter = "Attack";
+    public string walkingParameter = "IsWalking";   // Bool
+    public string runningParameter = "IsRunning";   // Bool (optional, true habang humahabol)
+    public string attackParameter = "Attack";       // Trigger
+    [Tooltip("Naka-off dapat. Kapag naka-on, nag-aaway ang animation at NavMeshAgent.")]
+    public bool forceNoRootMotion = true;
+    [Tooltip("Para hindi huminto ang animation kapag wala sa screen.")]
+    public bool alwaysAnimate = true;
 
     [Header("Debug")]
     public bool debugLogs = true;
@@ -78,18 +102,42 @@ public class EnemyAI : MonoBehaviour
 
     Vector3 lastKnownPos;
 
+    // animator
+    readonly HashSet<string> animParams = new HashSet<string>();
+    bool animReady;
+
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
 
         if (player == null)
         {
-            var p = GameObject.Find("Player");
+            var p = GameObject.FindGameObjectWithTag("Player");
+            if (p == null) p = GameObject.Find("Player");
             if (p != null) player = p.transform;
         }
         if (player != null) pc = player.GetComponent<PlayerController>();
 
         EnsureAnimator();
+
+        if (player == null)
+        {
+            Debug.LogError("EnemyAI '" + name + "': walang Player. I-assign ang 'player' o lagyan ng tag na Player.", this);
+            enabled = false;
+            return;
+        }
+
+        pc = player.GetComponentInParent<PlayerController>();
+        if (pc == null) pc = player.GetComponentInChildren<PlayerController>();
+
+        if (pc == null)
+        {
+            Debug.LogError("EnemyAI '" + name + "': walang PlayerController sa player.", this);
+            enabled = false;
+            return;
+        }
+
+        SetupAnimator();
 
         baseChase = chaseSpeed;
         basePatrol = patrolSpeed;
@@ -107,6 +155,8 @@ public class EnemyAI : MonoBehaviour
                 agent.Warp(hit.position);
             }
         }
+
+        if (randomSpawn && agent.isOnNavMesh) PlaceAtRandomSpawn();
 
         if (debugLogs)
         {
@@ -133,6 +183,141 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
+    // ------------------------------------------------ random spawn
+    void PlaceAtRandomSpawn()
+    {
+        var valid = new List<Vector3>();
+        Vector3 farthest = transform.position;
+        float farthestDist = -1f;
+
+        // mga pagpipilian: spawnPoints, kung wala ay waypoints
+        Transform[] pool = (spawnPoints != null && spawnPoints.Length > 0) ? spawnPoints : waypoints;
+
+        if (pool != null && pool.Length > 0)
+        {
+            foreach (var t in pool)
+            {
+                if (t == null) continue;
+                Consider(t.position, valid, ref farthest, ref farthestDist);
+            }
+        }
+        else
+        {
+            // walang points: random na pwesto sa NavMesh
+            for (int i = 0; i < 60; i++)
+            {
+                Vector3 p = transform.position + Random.insideUnitSphere * fallbackSpawnRadius;
+                Consider(p, valid, ref farthest, ref farthestDist);
+            }
+        }
+
+        Vector3 spot;
+        if (valid.Count > 0)
+        {
+            spot = valid[Random.Range(0, valid.Count)];
+        }
+        else if (farthestDist >= 0f)
+        {
+            // walang umabot sa minimum na layo, kunin ang pinakamalayo
+            spot = farthest;
+            if (debugLogs)
+                Debug.LogWarning("EnemyAI '" + name + "': walang spawn point na " + minSpawnDistance +
+                                 "+ ang layo sa player. Ginamit ang pinakamalayo (" + farthestDist.ToString("0.0") + ").", this);
+        }
+        else
+        {
+            return;
+        }
+
+        agent.Warp(spot);
+        transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+
+        if (debugLogs)
+            Debug.Log("EnemyAI '" + name + "' nag-spawn sa " + spot + ", layo sa player: " +
+                      Vector3.Distance(spot, player.position).ToString("0.0"), this);
+    }
+
+    void Consider(Vector3 pos, List<Vector3> valid, ref Vector3 farthest, ref float farthestDist)
+    {
+        NavMeshHit hit;
+        if (!NavMesh.SamplePosition(pos, out hit, 3f, NavMesh.AllAreas)) return;
+
+        float d = Vector3.Distance(hit.position, player.position);
+
+        if (d > farthestDist)
+        {
+            farthestDist = d;
+            farthest = hit.position;
+        }
+
+        if (d >= minSpawnDistance) valid.Add(hit.position);
+    }
+
+    // ------------------------------------------------ animator
+    void SetupAnimator()
+    {
+        animReady = false;
+        animParams.Clear();
+
+        if (anim == null) anim = GetComponentInChildren<Animator>(true);
+
+        if (anim == null)
+        {
+            if (debugLogs)
+                Debug.LogWarning("EnemyAI '" + name + "': walang Animator. Buksan ang Haunted House > Enemy Animation Fixer.", this);
+            return;
+        }
+
+        if (forceNoRootMotion) anim.applyRootMotion = false;
+        if (alwaysAnimate) anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+        if (anim.runtimeAnimatorController == null)
+        {
+            if (debugLogs)
+                Debug.LogWarning("EnemyAI '" + name + "': walang Controller ang Animator. Buksan ang Haunted House > Enemy Animation Fixer.", this);
+            return;
+        }
+
+        foreach (var p in anim.parameters) animParams.Add(p.name);
+        animReady = true;
+
+        if (debugLogs)
+        {
+            if (!animParams.Contains(walkingParameter))
+                Debug.LogWarning("EnemyAI '" + name + "': walang parameter na '" + walkingParameter + "' sa Animator Controller.", this);
+            if (!animParams.Contains(attackParameter))
+                Debug.LogWarning("EnemyAI '" + name + "': walang parameter na '" + attackParameter + "' sa Animator Controller.", this);
+        }
+    }
+
+    void SetBool(string param, bool value)
+    {
+        if (animReady && !string.IsNullOrEmpty(param) && animParams.Contains(param))
+            anim.SetBool(param, value);
+    }
+
+    void SetTrigger(string param)
+    {
+        if (animReady && !string.IsNullOrEmpty(param) && animParams.Contains(param))
+            anim.SetTrigger(param);
+    }
+
+    // Updates the Animator parameters.
+    void UpdateAnimations()
+    {
+        if (!animReady) return;
+
+        bool moving =
+            !waiting &&
+            !hasCaughtPlayer &&
+            !agent.isStopped &&
+            agent.velocity.magnitude > 0.1f;
+
+        SetBool(walkingParameter, moving);
+        SetBool(runningParameter, moving && state == State.Chase);
+    }
+
+    // ------------------------------------------------ update
     void Update()
     {
         if (player == null || pc == null) return;
@@ -167,11 +352,9 @@ public class EnemyAI : MonoBehaviour
             {
                 hasCaughtPlayer = true;
 
-                if (anim != null)
-                {
-                    anim.SetBool(walkingParameter, false);
-                    anim.SetTrigger(attackParameter);
-                }
+                SetBool(walkingParameter, false);
+                SetBool(runningParameter, false);
+                SetTrigger(attackParameter);
 
                 GameManager.Instance.Lose();
             }
@@ -181,7 +364,11 @@ public class EnemyAI : MonoBehaviour
 
         bool sees = CanSeePlayer();
 
+        float heightDiff = Mathf.Abs(player.position.y - transform.position.y);
+
+        // Hindi maririnig ang yabag kung nasa ibang palapag.
         bool hears = !pc.IsHidden &&
+                     heightDiff < hearHeight &&
                      Vector3.Distance(
                          transform.position,
                          player.position) < pc.CurrentNoise;
@@ -378,6 +565,9 @@ public class EnemyAI : MonoBehaviour
 
         Vector3 flat = player.position - transform.position;
 
+        // Ibang palapag? Hindi pa abot.
+        if (Mathf.Abs(flat.y) > catchHeight) return false;
+
         flat.y = 0f;
 
         return flat.magnitude < catchDistance;
@@ -386,6 +576,10 @@ public class EnemyAI : MonoBehaviour
     bool CanSeePlayer()
     {
         if (pc.IsHidden) return false;
+
+        // Hindi nakikita ang player sa ibang palapag.
+        if (Mathf.Abs(player.position.y - transform.position.y) > sightHeight)
+            return false;
 
         Vector3 eye =
             transform.position + Vector3.up * 1.6f;
@@ -457,7 +651,10 @@ public class EnemyAI : MonoBehaviour
             huntChance + huntChancePerPage * pages;
 
         // Sometimes head toward the player's area.
-        if (!pc.IsHidden && Random.value < hunt)
+        // (Sa parehong palapag lang, para hindi niya "alam" kung nasaan ka sa ibang floor.)
+        if (!pc.IsHidden &&
+            Mathf.Abs(player.position.y - transform.position.y) < hearHeight &&
+            Random.value < hunt)
         {
             pick = NearestWaypoint(player.position);
         }

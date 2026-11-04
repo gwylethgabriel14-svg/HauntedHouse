@@ -171,6 +171,12 @@ MonoBehaviour:
   titleSize: 84
   titlePosition: {x: 150, y: 70}
   titleColor: {r: 0.86, g: 0.8, b: 0.65, a: 1}
+  useBoxButtons: 1
+  normalSkin: Menu/btn_normal
+  highlightSkin: Menu/btn_highlight
+  pressedSkin: Menu/btn_pressed
+  buttonSize: {x: 430, y: 72}
+  boxedFontSize: 32
   font: {fileID: 0}
   fontSize: 50
   itemSpacing: 15
@@ -178,12 +184,6 @@ MonoBehaviour:
   normalColor: {r: 0.78, g: 0.74, b: 0.64, a: 0.85}
   hoverColor: {r: 0.97, g: 0.94, b: 0.84, a: 1}
   leftShade: 0.85
-  usePlates: 1
-  plateNormalResource: Menu/btn_normal
-  plateHoverResource: Menu/btn_highlight
-  platePressedResource: Menu/btn_pressed
-  plateSize: {x: 420, y: 78}
-  plateFontSize: 38
   menuMusic: {fileID: 8300000, guid: e1945b85dffb97044bcacd7cd619d63e, type: 3}
   musicVolume: 0.4
   hoverSound: {fileID: 8300000, guid: d81e6a54d1401be4eb809044acd541d3, type: 3}

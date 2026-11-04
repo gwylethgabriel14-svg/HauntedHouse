@@ -1,21 +1,35 @@
 using UnityEngine;
 using TMPro;
 
-// Shows flashlight battery and bottle count, plus a controls reminder that disappears after a while.
+// Controls reminder lang ang hawak nito ngayon.
+//  - Battery ay nasa PlayerHUD na (kaliwang taas, sa ilalim ng stamina).
+//  - Bottles ay nasa hotbar na (Inventory).
 public class HUD : MonoBehaviour
 {
-    public TMP_Text statusText;
+    public TMP_Text statusText;      // hindi na ginagamit, tinatago na lang
     public TMP_Text controlsText;
     public float controlsSeconds = 20f;
 
-    Flashlight flashlight;
-    ThrowItem thrower;
+    [Header("Controls text")]
+    public bool controlsTopRight = true;                       // para hindi matakpan ng hotbar
+    public Vector2 controlsMargin = new Vector2(30f, 30f);
+
     float elapsed;
 
     void Start()
     {
-        flashlight = FindFirstObjectByType<Flashlight>();
-        thrower = FindFirstObjectByType<ThrowItem>();
+        if (statusText != null) statusText.gameObject.SetActive(false);
+
+        if (controlsText != null && controlsTopRight)
+        {
+            var rt = controlsText.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.anchoredPosition = new Vector2(-controlsMargin.x, -controlsMargin.y);
+            rt.sizeDelta = new Vector2(1100f, 40f);
+            controlsText.alignment = TextAlignmentOptions.TopRight;
+            controlsText.textWrappingMode = TextWrappingModes.NoWrap;
+        }
     }
 
     void Update()
@@ -24,13 +38,5 @@ public class HUD : MonoBehaviour
 
         if (controlsText != null && elapsed > controlsSeconds && controlsText.gameObject.activeSelf)
             controlsText.gameObject.SetActive(false);
-
-        if (statusText == null) return;
-
-        int battery = flashlight != null ? Mathf.CeilToInt(flashlight.Battery) : 0;
-        int bottles = thrower != null ? thrower.bottles : 0;
-
-        statusText.text = "Battery: " + battery + "%    Bottles: " + bottles;
-        statusText.color = battery <= 15 ? new Color(1f, 0.3f, 0.3f) : Color.white;
     }
 }

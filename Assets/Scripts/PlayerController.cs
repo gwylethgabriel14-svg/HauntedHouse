@@ -13,6 +13,13 @@ public class PlayerController : MonoBehaviour
     public Transform cam;
     public float mouseSensitivity = 2f;
 
+    [Header("Stamina (sprinting)")]
+    public float maxStamina = 100f;
+    public float staminaDrainPerSecond = 22f;     // while sprinting
+    public float staminaRegenPerSecond = 16f;     // while not sprinting
+    public float staminaRegenDelay = 1f;          // seconds after sprinting before it refills
+    public float exhaustedRecoverAt = 25f;        // after running out, you can't sprint until it reaches this
+
     [Header("Crouch (Left Ctrl or C)")]
     public bool toggleCrouch = false;          // false = hold the key, true = press to switch
     public float crouchHeight = 1.1f;          // body height while crouching
@@ -28,11 +35,6 @@ public class PlayerController : MonoBehaviour
     public float hidePeekYaw = 3f;
     public float hidePeekPitch = 2.5f;
 
-    [Header("Stamina (sprint)")]
-    public float maxStamina = 6f;
-    public float staminaDrain = 1.15f;
-    public float staminaRegen = 0.85f;
-    public float staminaRegenDelay = 0.7f;
     [Range(0.05f, 0.6f)] public float lowStaminaThreshold = 0.28f;
 
     public bool IsHidden { get; set; }
@@ -43,6 +45,10 @@ public class PlayerController : MonoBehaviour
     public float Stamina { get; private set; }
     public float StaminaNormalized => maxStamina <= 0.01f ? 1f : Stamina / maxStamina;
     public bool StaminaIsLow => StaminaNormalized <= lowStaminaThreshold;
+    public bool IsSprinting { get; private set; }
+
+    public float SpeedMultiplier { get; set; } = 1f;
+    public bool IsExhausted { get; private set; }
 
     CharacterController cc;
     float pitch;
@@ -54,6 +60,9 @@ public class PlayerController : MonoBehaviour
     float camStandY;
     bool wantCrouch;
 
+    // stamina bookkeeping
+    float lastSprintTime = -10f;
+
     void Awake()
     {
         cc = GetComponent<CharacterController>();
@@ -63,14 +72,13 @@ public class PlayerController : MonoBehaviour
         standHeight = cc.height;
         bottomY = cc.center.y - cc.height / 2f;
         camStandY = cam != null ? cam.localPosition.y : 0f;
-        Stamina = maxStamina;
 
         // keep the crouch capsule valid
         crouchHeight = Mathf.Clamp(crouchHeight, cc.radius * 2f + 0.1f, standHeight);
+
+        Stamina = maxStamina;
     }
 
-    float regenWait;
-    bool sprinting;
     bool wasHidden;
     float hideFacingYaw;
 
@@ -102,7 +110,8 @@ public class PlayerController : MonoBehaviour
         if (!CanMove)
         {
             CurrentNoise = 0f;
-            RegenStamina(1f);
+            IsSprinting = false;
+            UpdateStamina(false);
             return;
         }
 
@@ -126,20 +135,13 @@ public class PlayerController : MonoBehaviour
         // Move
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");
-        bool wantRun = Input.GetKey(KeyCode.LeftShift) && !crouch && v > 0f;
-        float minSprint = sprinting ? 0.04f * maxStamina : 0.18f * maxStamina;
-        bool run = wantRun && Stamina > minSprint;
-        sprinting = run;
-        if (run)
-        {
-            Stamina = Mathf.Max(0f, Stamina - staminaDrain * Time.deltaTime);
-            regenWait = staminaRegenDelay;
-        }
-        else
-        {
-            RegenStamina(1f);
-        }
+        bool wantsRun = Input.GetKey(KeyCode.LeftShift) && !crouch && v > 0f;
+        bool run = wantsRun && !IsExhausted && Stamina > 0f;
+        UpdateStamina(run);
+        IsSprinting = run;
+
         float speed = crouch ? crouchSpeed : (run ? runSpeed : walkSpeed);
+        speed *= SpeedMultiplier;
 
         Vector3 move = (transform.right * h + transform.forward * v).normalized * speed;
 
@@ -202,14 +204,23 @@ public class PlayerController : MonoBehaviour
         CanMove = true;
     }
 
-    void RegenStamina(float multiplier)
+    void UpdateStamina(bool sprinting)
     {
-        if (regenWait > 0f)
+        if (sprinting)
         {
-            regenWait -= Time.deltaTime;
-            return;
+            Stamina -= staminaDrainPerSecond * Time.deltaTime;
+            lastSprintTime = Time.time;
+            if (Stamina <= 0f)
+            {
+                Stamina = 0f;
+                IsExhausted = true;
+            }
         }
-        Stamina = Mathf.Min(maxStamina, Stamina + staminaRegen * multiplier * Time.deltaTime);
+        else if (Time.time - lastSprintTime >= staminaRegenDelay)
+        {
+            Stamina = Mathf.Min(maxStamina, Stamina + staminaRegenPerSecond * Time.deltaTime);
+            if (IsExhausted && Stamina >= exhaustedRecoverAt) IsExhausted = false;
+        }
     }
 
     // smoothly changes the capsule height and the camera height, keeping your feet on the floor

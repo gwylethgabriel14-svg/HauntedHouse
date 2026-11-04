@@ -5,6 +5,7 @@ public class ItemPickup : MonoBehaviour, IInteractable
     public enum Type { Battery, Bottle }
     public Type type;
     public float batteryAmount = 40f;
+    public Sprite icon;              // optional, icon sa hotbar (bote)
 
     public static readonly Color BottleGlassColor = new Color(0.22f, 0.76f, 0.38f, 1f);
 
@@ -31,8 +32,17 @@ public class ItemPickup : MonoBehaviour, IInteractable
         }
         else
         {
-            var th = player.GetComponent<ThrowItem>();
-            if (th != null) th.bottles++;
+            var inv = Inventory.Instance;
+            if (inv != null)
+            {
+                // puno ang hotbar: iiwan sa sahig ang bote
+                if (!inv.AddItem("Bottle", icon, null, true)) return;
+            }
+            else
+            {
+                var th = player.GetComponent<ThrowItem>();
+                if (th != null) th.bottles++;
+            }
         }
 
         Destroy(gameObject);

@@ -244,6 +244,7 @@ public class PauseMenu : MonoBehaviour
         GameManager gm = GameManager.Instance;
         if (gm != null)
         {
+            if (gm.IsEnded) return false;   // <-- idagdag ito
             if (gm.winPanel != null && gm.winPanel.activeInHierarchy) return false;
             if (gm.losePanel != null && gm.losePanel.activeInHierarchy) return false;
         }

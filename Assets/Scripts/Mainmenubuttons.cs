@@ -7,8 +7,13 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // Left-side menu for "The Last Lullaby": NEW GAME, CONTINUE, SETTINGS, QUIT.
-// No button images needed: everything is built by this script at Play.
+// Everything is built by this script at Play.
 // Add it to an empty GameObject in the MainMenu scene.
+//
+// BUTTON STYLE
+//   Use Box Buttons = ON  -> textured, rough-edged boxes (Resources/Menu/btn_normal, btn_highlight, btn_pressed)
+//   Use Box Buttons = OFF -> plain text with an underline (the old style)
+//   If the box sprites cannot be found, the menu falls back to the underline style and prints a warning.
 public class MainMenuButtons : MonoBehaviour
 {
     [Header("Scenes")]
@@ -23,9 +28,17 @@ public class MainMenuButtons : MonoBehaviour
     public Vector2 titlePosition = new Vector2(150f, 70f);   // from the top-left corner (x right, y down)
     public Color titleColor = new Color(0.86f, 0.80f, 0.65f, 1f);
 
+    [Header("Button Style")]
+    public bool useBoxButtons = true;                       // textured boxes instead of underlined text
+    public string normalSkin = "Menu/btn_normal";           // Assets/Resources/Menu/btn_normal
+    public string highlightSkin = "Menu/btn_highlight";
+    public string pressedSkin = "Menu/btn_pressed";
+    public Vector2 buttonSize = new Vector2(420f, 78f);     // size of each box (reference 1920x1080)
+    public float boxedFontSize = 38f;                       // text size inside the boxes
+
     [Header("Look")]
     public TMP_FontAsset font;              // optional: an old serif font looks best
-    public float fontSize = 46f;
+    public float fontSize = 46f;            // used by the underline style, title row of settings, etc.
     public float itemSpacing = 14f;
     public Vector2 position = new Vector2(150f, -70f);  // x from the left, y from the vertical center
     public Color normalColor = new Color(0.78f, 0.74f, 0.64f, 0.85f);
@@ -47,6 +60,7 @@ public class MainMenuButtons : MonoBehaviour
         public RectTransform rt;
         public TMP_Text label;
         public Image line;
+        public Image bg;
         public float t;
         public bool enabled = true;
         public System.Action onClick;
@@ -54,8 +68,15 @@ public class MainMenuButtons : MonoBehaviour
 
     readonly List<Item> items = new List<Item>();
     int selected;
+    int hovered = -1;
     bool starting;
     bool settingsOpen;
+    bool howToPlayOpen;
+    GameObject howToPlayPanel;
+
+    // box button skin
+    bool boxed;
+    Sprite skinNormal, skinHighlight, skinPressed;
 
     Transform canvasRoot;
     Image fadeImage;
@@ -98,9 +119,44 @@ public class MainMenuButtons : MonoBehaviour
             music.Play();
         }
 
+        boxed = useBoxButtons && LoadSkin();
+
         BuildCanvas();
         BuildItems();
         BuildSettings();
+    }
+
+    // loads the three box sprites; returns false if the normal one is missing
+    bool LoadSkin()
+    {
+        skinNormal = LoadSkinSprite(normalSkin);
+        if (skinNormal == null)
+        {
+            Debug.LogWarning("MainMenuButtons: box button sprite not found at Resources/" + normalSkin +
+                             ". Using the underline style instead.");
+            return false;
+        }
+
+        skinHighlight = LoadSkinSprite(highlightSkin);
+        skinPressed = LoadSkinSprite(pressedSkin);
+        if (skinHighlight == null) skinHighlight = skinNormal;
+        if (skinPressed == null) skinPressed = skinNormal;
+        return true;
+    }
+
+    // works even if the file was not imported as a Sprite
+    Sprite LoadSkinSprite(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (sprite != null) return sprite;
+
+        Texture2D tex = Resources.Load<Texture2D>(path);
+        if (tex != null)
+            return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+
+        return null;
     }
 
     void HideOldUI()
@@ -225,19 +281,34 @@ public class MainMenuButtons : MonoBehaviour
     void AddItem(string text, bool enabled, System.Action onClick)
     {
         int index = items.Count;
-        float h = fontSize + 24f;
+        float h = boxed ? buttonSize.y : fontSize + 24f;
+        float w = boxed ? buttonSize.x : 700f;
 
         var row = new GameObject("Item_" + text, typeof(RectTransform), typeof(Image));
         row.transform.SetParent(canvasRoot, false);
         var rt = row.GetComponent<RectTransform>();
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 0.5f);
         rt.pivot = new Vector2(0f, 0.5f);
-        rt.sizeDelta = new Vector2(700f, h);
+        rt.sizeDelta = new Vector2(w, h);
         rt.anchoredPosition = new Vector2(position.x, position.y - index * (h + itemSpacing));
-        var bg = row.GetComponent<Image>();
-        bg.color = new Color(0, 0, 0, 0);   // invisible, but catches the mouse
 
-        var label = MakeText(row.transform, "Label", text, fontSize, TextAlignmentOptions.Left, normalColor);
+        var bg = row.GetComponent<Image>();
+        if (boxed)
+        {
+            bg.sprite = skinNormal;
+            bg.type = Image.Type.Simple;
+            bg.preserveAspect = false;
+            bg.color = enabled ? Color.white : new Color(1f, 1f, 1f, 0.4f);
+        }
+        else
+        {
+            bg.color = new Color(0, 0, 0, 0);   // invisible, but catches the mouse
+        }
+
+        var label = MakeText(row.transform, "Label", text,
+                             boxed ? boxedFontSize : fontSize,
+                             boxed ? TextAlignmentOptions.Center : TextAlignmentOptions.Left,
+                             normalColor);
         var lr = label.rectTransform;
         lr.anchorMin = Vector2.zero; lr.anchorMax = Vector2.one;
         lr.offsetMin = lr.offsetMax = Vector2.zero;
@@ -252,8 +323,9 @@ public class MainMenuButtons : MonoBehaviour
         var line = lineGo.GetComponent<Image>();
         line.color = new Color(hoverColor.r, hoverColor.g, hoverColor.b, 0.7f);
         line.raycastTarget = false;
+        if (boxed) lineGo.SetActive(false);   // the box replaces the underline
 
-        var item = new Item { rt = rt, label = label, line = line, enabled = enabled, onClick = onClick };
+        var item = new Item { rt = rt, label = label, line = line, bg = bg, enabled = enabled, onClick = onClick };
         items.Add(item);
 
         AddEvent(row, EventTriggerType.PointerEnter, () =>
@@ -261,6 +333,11 @@ public class MainMenuButtons : MonoBehaviour
             if (starting || settingsOpen || !item.enabled) return;
             if (selected != index) Play(hoverSound);
             selected = index;
+            hovered = index;
+        });
+        AddEvent(row, EventTriggerType.PointerExit, () =>
+        {
+            if (hovered == index) hovered = -1;
         });
         AddEvent(row, EventTriggerType.PointerClick, () => Activate(index));
     }
@@ -271,7 +348,11 @@ public class MainMenuButtons : MonoBehaviour
     {
         if (settingsOpen)
         {
-            if (Input.GetKeyDown(KeyCode.Escape)) CloseSettings();
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (howToPlayOpen) CloseHowToPlay();
+                else CloseSettings();
+            }
             return;
         }
 
@@ -293,6 +374,20 @@ public class MainMenuButtons : MonoBehaviour
             if (!it.enabled) c.a = 0.25f;
             it.label.color = c;
 
+            if (boxed)
+            {
+                // box style: swap the sprite (normal / highlight / pressed), the text stays centred
+                bool isSelected = i == selected && it.enabled && !starting;
+                bool isPressed = it.enabled && !starting &&
+                    ((hovered == i && Input.GetMouseButton(0)) ||
+                     (isSelected && (Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.Space))));
+
+                it.bg.sprite = isPressed ? skinPressed : (isSelected ? skinHighlight : skinNormal);
+                it.bg.color = it.enabled ? Color.white : new Color(1f, 1f, 1f, 0.4f);
+                continue;
+            }
+
+            // underline style
             var p = it.label.rectTransform.anchoredPosition;
             p.x = Mathf.Lerp(0f, 26f, it.t);
             it.label.rectTransform.anchoredPosition = p;
@@ -326,6 +421,7 @@ public class MainMenuButtons : MonoBehaviour
     void NewGame()
     {
         SaveSystem.DeleteSave();   // a new game erases the old save
+        PlayerHealth.ResetPersisted();   // <-- idagdag ito
         PlayerPrefs.SetInt(KeyStarted, 1);
         PlayerPrefs.Save();
         StartCoroutine(LoadScene(newGameScene));
@@ -378,8 +474,46 @@ public class MainMenuButtons : MonoBehaviour
     {
         PlayerPrefs.Save();
         settingsOpen = false;
+        howToPlayOpen = false;
         settingsPanel.SetActive(false);
+        if (howToPlayPanel != null) howToPlayPanel.SetActive(false);
     }
+
+    void OpenHowToPlay()
+    {
+        howToPlayOpen = true;
+        settingsPanel.SetActive(false);
+        howToPlayPanel.SetActive(true);
+    }
+
+    void CloseHowToPlay()
+    {
+        howToPlayOpen = false;
+        howToPlayPanel.SetActive(false);
+        settingsPanel.SetActive(true);
+    }
+
+    // same text as the pause menu's HOW TO PLAY
+    const string HowLeft =
+        "<color=#F7F0D6>GOAL</color>\n" +
+        "Find the four torn diary pages hidden in the house. When the last one is read, a music box key appears somewhere. Take it to the front door and escape.\n\n" +
+        "<color=#F7F0D6>CONTROLS</color>\n" +
+        "W A S D     Move\n" +
+        "Mouse     Look\n" +
+        "Shift     Run (loud)\n" +
+        "Ctrl     Crouch (quiet)\n" +
+        "F     Flashlight\n" +
+        "E     Pick up / Hide / Open\n" +
+        "G     Throw a bottle";
+
+    const string HowRight =
+        "<color=#F7F0D6>SURVIVE</color>\n" +
+        "She hears you. Running is loud, crouching is quiet.\n\n" +
+        "Hide in a locker with E when she is close. She can't see you inside.\n\n" +
+        "Throw a bottle to lure her away from where you are.\n\n" +
+        "Batteries keep your flashlight alive. It flickers when it's almost out.\n\n" +
+        "Every page you find makes her faster, and the house closes in around you.\n\n" +
+        "Your progress is saved each time you find a page.";
 
     void BuildSettings()
     {
@@ -387,18 +521,18 @@ public class MainMenuButtons : MonoBehaviour
         settingsPanel.transform.SetParent(canvasRoot, false);
         var pr = settingsPanel.GetComponent<RectTransform>();
         pr.anchorMin = pr.anchorMax = new Vector2(0.5f, 0.5f);
-        pr.sizeDelta = new Vector2(900f, 520f);
+        pr.sizeDelta = new Vector2(900f, 560f);
         pr.anchoredPosition = Vector2.zero;
-        settingsPanel.GetComponent<Image>().color = new Color(0.02f, 0.02f, 0.02f, 0.93f);
+        settingsPanel.GetComponent<Image>().color = new Color(0.02f, 0.02f, 0.02f, 0.96f);
 
         var title = MakeText(settingsPanel.transform, "Title", "SETTINGS", fontSize, TextAlignmentOptions.Center, hoverColor);
-        Place(title.rectTransform, new Vector2(0f, 190f), new Vector2(700f, 70f));
+        Place(title.rectTransform, new Vector2(0f, 210f), new Vector2(700f, 70f));
 
         // volume
         var volLabel = MakeText(settingsPanel.transform, "VolumeLabel", "VOLUME", fontSize * 0.7f, TextAlignmentOptions.Left, normalColor);
-        Place(volLabel.rectTransform, new Vector2(-250f, 40f), new Vector2(300f, 60f));
+        Place(volLabel.rectTransform, new Vector2(-250f, 70f), new Vector2(300f, 60f));
         var slider = MakeSlider(settingsPanel.transform, new Vector2(300f, 40f));
-        slider.GetComponent<RectTransform>().anchoredPosition = new Vector2(190f, 40f);
+        slider.GetComponent<RectTransform>().anchoredPosition = new Vector2(190f, 70f);
         slider.value = PlayerPrefs.GetFloat(KeyVolume, 1f);
         slider.onValueChanged.AddListener(v =>
         {
@@ -408,9 +542,9 @@ public class MainMenuButtons : MonoBehaviour
 
         // fullscreen
         var fsLabel = MakeText(settingsPanel.transform, "FullscreenLabel", "FULLSCREEN", fontSize * 0.7f, TextAlignmentOptions.Left, normalColor);
-        Place(fsLabel.rectTransform, new Vector2(-250f, -60f), new Vector2(300f, 60f));
+        Place(fsLabel.rectTransform, new Vector2(-250f, -10f), new Vector2(300f, 60f));
         fullscreenValue = ClickableText(settingsPanel.transform, "FullscreenValue", Screen.fullScreen ? "ON" : "OFF",
-            fontSize * 0.7f, new Vector2(190f, -60f), new Vector2(200f, 60f), () =>
+            fontSize * 0.7f, new Vector2(190f, -10f), new Vector2(200f, 60f), () =>
             {
                 bool fs = !Screen.fullScreen;
                 Screen.fullScreen = fs;
@@ -418,11 +552,53 @@ public class MainMenuButtons : MonoBehaviour
                 fullscreenValue.text = fs ? "ON" : "OFF";
             });
 
-        // back
-        ClickableText(settingsPanel.transform, "Back", "BACK", fontSize * 0.8f, new Vector2(0f, -190f), new Vector2(300f, 70f), CloseSettings);
+        // how to play and back
+        ClickableText(settingsPanel.transform, "HowToPlay", "HOW TO PLAY", fontSize * 0.7f,
+            new Vector2(0f, -90f), new Vector2(420f, 60f), OpenHowToPlay);
+        ClickableText(settingsPanel.transform, "Back", "BACK", fontSize * 0.8f,
+            new Vector2(0f, -205f), new Vector2(300f, 70f), CloseSettings);
 
         settingsPanel.SetActive(false);
+
+        BuildHowToPlay();
         fadeImage.transform.SetAsLastSibling();
+    }
+
+    void BuildHowToPlay()
+    {
+        howToPlayPanel = new GameObject("HowToPlayPanel", typeof(RectTransform), typeof(Image));
+        howToPlayPanel.transform.SetParent(canvasRoot, false);
+        var pr = howToPlayPanel.GetComponent<RectTransform>();
+        pr.anchorMin = pr.anchorMax = new Vector2(0.5f, 0.5f);
+        pr.sizeDelta = new Vector2(1400f, 780f);
+        pr.anchoredPosition = Vector2.zero;
+        howToPlayPanel.GetComponent<Image>().color = new Color(0.02f, 0.02f, 0.02f, 0.97f);
+
+        var title = MakeText(howToPlayPanel.transform, "Title", "HOW TO PLAY", fontSize, TextAlignmentOptions.Center, hoverColor);
+        Place(title.rectTransform, new Vector2(0f, 320f), new Vector2(900f, 70f));
+
+        MakeBody(howToPlayPanel.transform, "Left", HowLeft, new Vector2(-350f, 0f), new Vector2(620f, 560f));
+        MakeBody(howToPlayPanel.transform, "Right", HowRight, new Vector2(350f, 0f), new Vector2(620f, 560f));
+
+        ClickableText(howToPlayPanel.transform, "Back", "BACK", fontSize * 0.8f,
+            new Vector2(0f, -330f), new Vector2(300f, 70f), CloseHowToPlay);
+
+        howToPlayPanel.SetActive(false);
+    }
+
+    // wrapped body text that shrinks to fit its box
+    TMP_Text MakeBody(Transform parent, string name, string text, Vector2 pos, Vector2 size)
+    {
+        float body = fontSize * 0.62f;
+        var t = MakeText(parent, name, text, body, TextAlignmentOptions.TopLeft, normalColor);
+        t.characterSpacing = 1f;
+        t.lineSpacing = 8f;
+        t.textWrappingMode = TextWrappingModes.Normal;
+        t.enableAutoSizing = true;
+        t.fontSizeMin = 18f;
+        t.fontSizeMax = body;
+        Place(t.rectTransform, pos, size);
+        return t;
     }
 
     Slider MakeSlider(Transform parent, Vector2 size)

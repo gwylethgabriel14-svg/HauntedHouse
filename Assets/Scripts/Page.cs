@@ -2,6 +2,8 @@ using UnityEngine;
 
 public class Page : MonoBehaviour, IInteractable
 {
+    public Sprite icon;              // optional, icon sa hotbar
+
     public string Prompt => "Pick up page";
 
     void Awake()
@@ -12,6 +14,7 @@ public class Page : MonoBehaviour, IInteractable
     public void Interact(PlayerController player)
     {
         GameManager.Instance.CollectPage();
+        if (Inventory.Instance != null) Inventory.Instance.AddItem("Page", icon, null, true);
         Destroy(gameObject);
     }
 

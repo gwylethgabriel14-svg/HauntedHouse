@@ -34,6 +34,7 @@ public class SaveSystem : MonoBehaviour
         public float playerYaw;
         public float battery = -1f;
         public int bottles;
+        public int lives = -1;
 
         public bool hasEnemy;
         public Vector3 enemy;
@@ -42,6 +43,11 @@ public class SaveSystem : MonoBehaviour
         public bool keyExists;
         public Vector3 keyPos;
         public Vector3 keyRot;
+
+        public bool musicBoxFound;
+        public bool musicBoxExists;
+        public Vector3 musicBoxPos;
+        public Vector3 musicBoxRot;
 
         public List<Vector3> pagePos = new List<Vector3>();
         public List<Vector3> pageRot = new List<Vector3>();
@@ -124,6 +130,9 @@ public class SaveSystem : MonoBehaviour
         var th = FindFirstObjectByType<ThrowItem>();
         if (th != null) d.bottles = th.bottles;
 
+        var health = FindFirstObjectByType<PlayerHealth>();
+        if (health != null) d.lives = health.Lives;
+
         var en = FindFirstObjectByType<EnemyAI>();
         if (en != null)
         {
@@ -144,6 +153,15 @@ public class SaveSystem : MonoBehaviour
             d.keyExists = true;
             d.keyPos = key.transform.position;
             d.keyRot = key.transform.eulerAngles;
+        }
+
+        d.musicBoxFound = gm.MusicBoxFound;
+        var box = FindFirstObjectByType<MusicBoxItem>();
+        if (box != null)
+        {
+            d.musicBoxExists = true;
+            d.musicBoxPos = box.transform.position;
+            d.musicBoxRot = box.transform.eulerAngles;
         }
 
         foreach (var it in FindObjectsByType<ItemPickup>(FindObjectsSortMode.None))
@@ -239,7 +257,15 @@ public class SaveSystem : MonoBehaviour
 
         // the key, if it had already appeared
         if (d.keyExists && gm != null && gm.keyPrefab != null)
+        {
             Instantiate(gm.keyPrefab, d.keyPos, Quaternion.Euler(d.keyRot));
+            gm.MarkKeySpawned();
+        }
+
+        // the music box
+        if (gm != null) gm.RestoreMusicBox(d.musicBoxFound);
+        var mgr = FindFirstObjectByType<MusicBoxManager>();
+        if (mgr != null) mgr.RestoreFromSave(d.musicBoxFound, d.musicBoxExists, d.musicBoxPos, d.musicBoxRot);
 
         // batteries / bottles: remove the ones already taken
         foreach (var it in FindObjectsByType<ItemPickup>(FindObjectsSortMode.None))
@@ -267,6 +293,9 @@ public class SaveSystem : MonoBehaviour
 
         var th = FindFirstObjectByType<ThrowItem>();
         if (th != null) th.bottles = d.bottles;
+
+        var health = FindFirstObjectByType<PlayerHealth>();
+        if (health != null && d.lives > 0) health.SetLives(d.lives);
 
         // enemy
         var en = FindFirstObjectByType<EnemyAI>();
