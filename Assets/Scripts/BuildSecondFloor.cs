@@ -264,19 +264,51 @@ public static class BuildSecondFloor
         root.transform.position = pos;
         root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
-        BoxL(root.transform, "Body", new Vector3(0f, 1f, 0f), new Vector3(0.9f, 2f, 0.9f), mWood);
-        BoxL(root.transform, "Door", new Vector3(0f, 1f, -0.47f), new Vector3(0.75f, 1.8f, 0.06f), mAttic);
+        // Hollow cabinet, not a solid block (so the player can see outside).
+        const float t = 0.065f;
+        BoxL(root.transform, "Back", new Vector3(0f, 1f, 0.42f), new Vector3(0.9f, 2f, t), mWood);
+        BoxL(root.transform, "Left", new Vector3(-0.42f, 1f, 0f), new Vector3(t, 2f, 0.84f), mWood);
+        BoxL(root.transform, "Right", new Vector3(0.42f, 1f, 0f), new Vector3(t, 2f, 0.84f), mWood);
+        BoxL(root.transform, "Top", new Vector3(0f, 1.96f, 0f), new Vector3(0.84f, t, 0.84f), mWood);
+        BoxL(root.transform, "Bottom", new Vector3(0f, 0.04f, 0f), new Vector3(0.84f, t, 0.84f), mWood);
+
+        // A real horizontal slit in the front door at eye height.
+        const float slitY = 1.55f;
+        const float slitH = 0.22f;
+        const float doorBottom = 0.1f;
+        const float doorTop = 1.9f;
+        float bottomH = slitY - slitH * 0.5f - doorBottom;
+        float topH = doorTop - (slitY + slitH * 0.5f);
+        BoxL(root.transform, "Door_Bottom", new Vector3(0f, doorBottom + bottomH * 0.5f, -0.47f),
+             new Vector3(0.75f, bottomH, 0.06f), mAttic);
+        BoxL(root.transform, "Door_Top", new Vector3(0f, doorTop - topH * 0.5f, -0.47f),
+             new Vector3(0.75f, topH, 0.06f), mAttic);
+        BoxL(root.transform, "Door_Slit_Left", new Vector3(-0.305f, slitY, -0.47f),
+             new Vector3(0.14f, slitH, 0.06f), mAttic);
+        BoxL(root.transform, "Door_Slit_Right", new Vector3(0.305f, slitY, -0.47f),
+             new Vector3(0.14f, slitH, 0.06f), mAttic);
 
         var hide = new GameObject("hidePoint").transform;
         hide.SetParent(root.transform, false);
-        hide.localPosition = new Vector3(0f, 1f, 0f);
+        // Eye-aligned camera pivot; use the actual player camera offset where available.
+        float cameraOffset = 1.55f;
+        var player = Object.FindFirstObjectByType<PlayerController>();
+        if (player != null && player.cam != null)
+            cameraOffset = player.transform.InverseTransformPoint(player.cam.position).y;
+        hide.localPosition = new Vector3(0f, slitY - cameraOffset, 0f);
+
         var exit = new GameObject("exitPoint").transform;
         exit.SetParent(root.transform, false);
         exit.localPosition = new Vector3(0f, 1f, -1.5f);
 
+        var peek = new GameObject("PeekLookPoint").transform;
+        peek.SetParent(root.transform, false);
+        peek.localPosition = new Vector3(0f, slitY, -1.5f);
+
         var hs = root.AddComponent<HidingSpot>();
         SetRef(hs, "hidePoint", hide, hide.gameObject);
         SetRef(hs, "exitPoint", exit, exit.gameObject);
+        SetRef(hs, "peekLookPoint", peek, peek.gameObject);
     }
 
     // ------------------------------------------------------------------ helpers

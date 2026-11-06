@@ -1,164 +1,691 @@
+
+using System;
 using System.Collections;
 using UnityEngine;
 
 namespace HauntedItems
 {
+    [DisallowMultipleComponent]
     public class TranquilizerGun : MonoBehaviour
     {
+        [Header("Inventory Integration")]
+        public string inventoryItemName = "Tranquilizer Gun";
+        public Sprite inventoryIcon;
+        public bool addToInventoryOnEquip = true;
+        public bool doNotAutoSelect = true;
+
         [Header("Ammo")]
         public int magazineSize = 3;
         public int ammoInMagazine = 3;
 
-        [Header("Stats")]
+        [Header("Weapon Stats")]
         public float stunSeconds = 120f;
         public float dartSpeed = 45f;
         public float fireCooldown = 0.6f;
         public float reloadSeconds = 1.8f;
         public float maxAimRange = 100f;
 
+        [Header("Aim Assistance")]
+        [Tooltip("Sphere radius for easier enemy aiming.")]
+        public float aimAssistRadius = 0.12f;
+
         [Header("Controls")]
         public int fireMouseButton = 0;
         public KeyCode reloadKey = KeyCode.R;
 
-        [Header("Parts (auto-filled)")]
-        public Transform muzzle, magazine, bolt, chamberDart;
+        [Header("Parts")]
+        public Transform muzzle;
+        public Transform magazine;
+        public Transform bolt;
+        public Transform chamberDart;
         public Renderer[] ammoLights;
         public GameObject dartPrefab;
 
-        [Header("Held pose (relative sa camera)")]
-        public Vector3 heldPosition = new Vector3(0.24f, -0.22f, 0.5f);
-        public Vector3 heldEuler = new Vector3(0, 0, 0);
+        [Header("Held Pose")]
+        public Vector3 heldPosition =
+            new Vector3(0.24f, -0.22f, 0.5f);
+
+        public Vector3 heldEuler = Vector3.zero;
+
+        [Header("Debug")]
+        public bool showDebugLogs = true;
 
         public bool IsReloading { get; private set; }
 
-        PlayerItemInteractor owner; Camera cam; float nextFire;
-        Vector3 magRest, boltRest;
-        static readonly Color LightOn = new Color(2.2f, 0.12f, 0.08f);
-
-        void Awake()
+        public bool IsInInventory
         {
-            if (magazine) magRest = magazine.localPosition;
-            if (bolt) boltRest = bolt.localPosition;
+            get { return registeredInInventory; }
+        }
+
+        public bool IsEquipped
+        {
+            get
+            {
+                if (inventory == null)
+                    return false;
+
+                if (!gameObject.activeInHierarchy)
+                    return false;
+
+                Inventory.Item item = inventory.Selected;
+
+                return item != null &&
+                       item.heldObject == gameObject;
+            }
+        }
+
+        private PlayerItemInteractor owner;
+        private Camera cam;
+        private Transform playerRoot;
+        private Inventory inventory;
+
+        private bool registeredInInventory;
+        private float nextFire;
+
+        private Vector3 magRest;
+        private Vector3 boltRest;
+
+        private Coroutine recoilRoutine;
+        private Coroutine reloadRoutine;
+
+        private static readonly Color LightOn =
+            new Color(2.2f, 0.12f, 0.08f);
+
+        private void Awake()
+        {
+            if (magazine != null)
+                magRest = magazine.localPosition;
+
+            if (bolt != null)
+                boltRest = bolt.localPosition;
+
+            magazineSize = Mathf.Max(1, magazineSize);
+
+            ammoInMagazine = Mathf.Clamp(
+                ammoInMagazine, 0, magazineSize);
+
             RefreshVisuals();
         }
 
-        public void Equip(PlayerItemInteractor who, Camera camera)
+        // ===================================================
+        // INVENTORY PICKUP / EQUIP
+        // ===================================================
+
+        public void Equip(
+            PlayerItemInteractor who,
+            Camera camera)
         {
-            owner = who; cam = camera;
-            foreach (var c in GetComponentsInChildren<Collider>()) c.enabled = false;
-            var pickup = GetComponent<PickupItem>(); if (pickup) pickup.enabled = false;
+            if (who == null || camera == null)
+            {
+                Debug.LogWarning(
+                    "[GUN] Missing PlayerItemInteractor or Camera.",
+                    this);
+                return;
+            }
+
+            owner = who;
+            cam = camera;
+
+            PlayerController controller =
+                owner.GetComponentInParent<PlayerController>();
+
+            if (controller == null)
+            {
+                controller =
+                    cam.GetComponentInParent<PlayerController>();
+            }
+
+            playerRoot = controller != null
+                ? controller.transform
+                : owner.transform;
+
+            inventory = Inventory.Instance;
+
+            if (inventory == null)
+                inventory = FindFirstObjectByType<Inventory>();
+
+            if (addToInventoryOnEquip)
+            {
+                if (inventory == null)
+                {
+                    owner.ShowMessage("Inventory not found.");
+                    return;
+                }
+
+                if (!registeredInInventory)
+                {
+                    if (inventory.HasItem(inventoryItemName))
+                    {
+                        owner.ShowMessage(
+                            "You already have a tranquilizer gun.");
+                        return;
+                    }
+
+                    // Attach first so inventory can safely
+                    // activate/deactivate this held object.
+                    transform.SetParent(cam.transform, false);
+                    transform.localPosition = heldPosition;
+                    transform.localRotation =
+                        Quaternion.Euler(heldEuler);
+                    transform.localScale = Vector3.one;
+
+                    bool added = inventory.AddItem(
+                        inventoryItemName,
+                        inventoryIcon,
+                        gameObject,
+                        false,
+                        1);
+
+                    if (!added)
+                    {
+                        owner.ShowMessage("Inventory full.");
+                        return;
+                    }
+
+                    registeredInInventory = true;
+                }
+            }
+
+            // Prevent equipped gun from blocking raycasts.
+            foreach (Collider col in
+                GetComponentsInChildren<Collider>(true))
+            {
+                col.enabled = false;
+            }
+
+            PickupItem pickup =
+                GetComponent<PickupItem>();
+
+            if (pickup != null)
+                pickup.enabled = false;
+
             transform.SetParent(cam.transform, false);
             transform.localPosition = heldPosition;
-            transform.localRotation = Quaternion.Euler(heldEuler);
+            transform.localRotation =
+                Quaternion.Euler(heldEuler);
             transform.localScale = Vector3.one;
+
             enabled = true;
             RefreshVisuals();
+
+            if (registeredInInventory && inventory != null)
+            {
+                int previousSelection = inventory.SelectedIndex;
+                int gunSlot = FindGunSlot();
+
+                if (!doNotAutoSelect && gunSlot >= 0)
+                    inventory.Select(gunSlot);
+                else
+                    inventory.Select(previousSelection);
+
+                if (gunSlot >= 0)
+                {
+                    owner.ShowMessage(
+                        "Tranquilizer Gun in slot " +
+                        (gunSlot + 1) +
+                        ". Press " + (gunSlot + 1) +
+                        " to equip.");
+                }
+            }
+
+            if (showDebugLogs)
+            {
+                Debug.Log(
+                    "[GUN] Registered in inventory. Player: " +
+                    (playerRoot != null
+                        ? playerRoot.name
+                        : "None"),
+                    this);
+            }
         }
 
-        void Update()
+        private int FindGunSlot()
         {
-            if (cam == null || IsReloading) return;
-            if (Input.GetMouseButtonDown(fireMouseButton)) TryFire();
-            if (Input.GetKeyDown(reloadKey)) TryReload();
+            if (inventory == null)
+                return -1;
+
+            int original = inventory.SelectedIndex;
+            int found = -1;
+
+            for (int i = 0; i < inventory.slotCount; i++)
+            {
+                inventory.Select(i);
+
+                Inventory.Item item = inventory.Selected;
+
+                if (item != null &&
+                    item.heldObject == gameObject)
+                {
+                    found = i;
+                    break;
+                }
+            }
+
+            inventory.Select(original);
+            return found;
         }
 
-        void TryFire()
+        // ===================================================
+        // INPUT
+        // ===================================================
+
+        private void Update()
         {
-            if (Time.time < nextFire) return;
+            if (cam == null || Time.timeScale <= 0f)
+                return;
+
+            if (addToInventoryOnEquip && !IsEquipped)
+                return;
+
+            if (Cursor.lockState != CursorLockMode.Locked)
+                return;
+
+            if (IsReloading)
+                return;
+
+            if (Input.GetMouseButtonDown(fireMouseButton))
+                TryFire();
+
+            if (Input.GetKeyDown(reloadKey))
+                TryReload();
+        }
+
+        // ===================================================
+        // FIRE
+        // ===================================================
+
+        private void TryFire()
+        {
+            if (Time.time < nextFire)
+                return;
+
             if (ammoInMagazine <= 0)
             {
                 nextFire = Time.time + 0.3f;
-                owner?.ShowMessage("Empty - press R to reload");
+                owner?.ShowMessage("Empty - press R to reload.");
                 return;
             }
+
+            Vector3 aimPoint = GetAimPoint();
+
+            Vector3 origin = muzzle != null
+                ? muzzle.position
+                : cam.transform.position +
+                  cam.transform.forward * 0.45f;
+
+            Vector3 direction = aimPoint - origin;
+
+            if (direction.sqrMagnitude < 0.0001f)
+                direction = cam.transform.forward;
+
+            direction.Normalize();
+
+            GameObject dartObject;
+
+            if (dartPrefab != null)
+            {
+                dartObject = Instantiate(
+                    dartPrefab,
+                    origin,
+                    Quaternion.LookRotation(direction));
+            }
+            else
+            {
+                dartObject = ItemModelFactory.BuildDart();
+
+                if (dartObject != null)
+                {
+                    dartObject.transform.SetPositionAndRotation(
+                        origin,
+                        Quaternion.LookRotation(direction));
+                }
+            }
+
+            if (dartObject == null)
+            {
+                Debug.LogError(
+                    "[GUN] Could not spawn a dart.",
+                    this);
+                return;
+            }
+
+            TranquilizerDart dart =
+                dartObject.GetComponent<TranquilizerDart>();
+
+            if (dart == null)
+            {
+                dart =
+                    dartObject.AddComponent<TranquilizerDart>();
+            }
+
+            dart.showDebugLogs = showDebugLogs;
+
+            // Important:
+            // Ignore the actual Player, never CHARACTERS.
+            dart.Launch(
+                direction,
+                dartSpeed,
+                stunSeconds,
+                playerRoot);
+
             ammoInMagazine--;
+
             nextFire = Time.time + fireCooldown;
 
-            Vector3 origin = muzzle ? muzzle.position : cam.transform.position;
-            Vector3 target = cam.transform.position + cam.transform.forward * maxAimRange;
-            if (Physics.Raycast(cam.transform.position, cam.transform.forward, out var hit, maxAimRange, ~0, QueryTriggerInteraction.Ignore))
-                target = hit.point;
-            Vector3 dir = (target - origin).normalized;
-
-            GameObject go = dartPrefab != null ? Instantiate(dartPrefab, origin, Quaternion.LookRotation(dir))
-                                               : ItemModelFactory.BuildDart();
-            go.transform.SetPositionAndRotation(origin, Quaternion.LookRotation(dir));
-            var dart = go.GetComponent<TranquilizerDart>();
-            if (dart == null) dart = go.AddComponent<TranquilizerDart>();
-            dart.Launch(dir, dartSpeed, stunSeconds, owner != null ? owner.transform.root : null);
-
             RefreshVisuals();
-            StartCoroutine(Recoil());
+
+            if (recoilRoutine != null)
+                StopCoroutine(recoilRoutine);
+
+            recoilRoutine = StartCoroutine(Recoil());
+
+            if (showDebugLogs)
+            {
+                Debug.Log(
+                    "[GUN] FIRED | Ammo: " +
+                    ammoInMagazine + "/" + magazineSize +
+                    " | Target: " + aimPoint,
+                    this);
+            }
         }
 
-        void TryReload()
+        // ===================================================
+        // AIM AT CROSSHAIR
+        // ===================================================
+
+        private Vector3 GetAimPoint()
         {
-            if (IsReloading) return;
-            if (ammoInMagazine >= magazineSize) { owner?.ShowMessage("Magazine full"); return; }
-            if (owner == null || owner.darts <= 0) { owner?.ShowMessage("No darts left - find more"); return; }
-            StartCoroutine(ReloadRoutine());
+            Vector3 origin = cam.transform.position;
+            Vector3 forward = cam.transform.forward;
+
+            Vector3 target =
+                origin + forward * maxAimRange;
+
+            RaycastHit[] hits = Physics.SphereCastAll(
+                origin,
+                Mathf.Max(0.01f, aimAssistRadius),
+                forward,
+                maxAimRange,
+                ~0,
+                QueryTriggerInteraction.Collide);
+
+            Array.Sort(
+                hits,
+                (a, b) =>
+                    a.distance.CompareTo(b.distance));
+
+            foreach (RaycastHit hit in hits)
+            {
+                Collider col = hit.collider;
+
+                if (col == null)
+                    continue;
+
+                if (IsPlayerCollider(col))
+                    continue;
+
+                if (col.transform.IsChildOf(transform))
+                    continue;
+
+                bool enemyTrigger =
+                    col.GetComponentInParent<EnemyAI>() != null ||
+                    col.GetComponentInParent<StunnableEnemy>() != null ||
+                    col.GetComponentInParent<EnemyController>() != null;
+
+                // Ignore unrelated trigger volumes.
+                if (col.isTrigger && !enemyTrigger)
+                    continue;
+
+                target = hit.point != Vector3.zero
+                    ? hit.point
+                    : origin + forward * hit.distance;
+
+                if (showDebugLogs)
+                {
+                    Debug.Log(
+                        "[GUN] Crosshair hit: " + col.name +
+                        " | Enemy: " + enemyTrigger,
+                        col);
+                }
+
+                break;
+            }
+
+            return target;
         }
 
-        IEnumerator ReloadRoutine()
+        private bool IsPlayerCollider(Collider col)
+        {
+            if (col == null)
+                return false;
+
+            if (playerRoot != null &&
+                col.transform.IsChildOf(playerRoot))
+                return true;
+
+            return
+                col.GetComponentInParent<PlayerController>() != null;
+        }
+
+        // ===================================================
+        // RELOAD
+        // ===================================================
+
+        private void TryReload()
+        {
+            if (IsReloading)
+                return;
+
+            if (ammoInMagazine >= magazineSize)
+            {
+                owner?.ShowMessage("Magazine full.");
+                return;
+            }
+
+            if (owner == null || owner.darts <= 0)
+            {
+                owner?.ShowMessage(
+                    "No darts left - find more.");
+                return;
+            }
+
+            reloadRoutine = StartCoroutine(ReloadRoutine());
+        }
+
+        private IEnumerator ReloadRoutine()
         {
             IsReloading = true;
+
+            if (recoilRoutine != null)
+            {
+                StopCoroutine(recoilRoutine);
+                recoilRoutine = null;
+            }
+
             Vector3 basePos = heldPosition;
-            Quaternion baseRot = Quaternion.Euler(heldEuler);
-            Vector3 lowPos = basePos + new Vector3(0.02f, -0.13f, -0.05f);
-            Quaternion lowRot = Quaternion.Euler(heldEuler + new Vector3(28, 12, -22));
-            float t1 = reloadSeconds * 0.25f, t2 = reloadSeconds * 0.5f, t3 = reloadSeconds * 0.25f;
+            Quaternion baseRot =
+                Quaternion.Euler(heldEuler);
+
+            Vector3 lowPos =
+                basePos + new Vector3(0.02f, -0.13f, -0.05f);
+
+            Quaternion lowRot = Quaternion.Euler(
+                heldEuler + new Vector3(28f, 12f, -22f));
+
+            float t1 = reloadSeconds * 0.25f;
+            float t2 = reloadSeconds * 0.50f;
+            float t3 = reloadSeconds * 0.25f;
 
             owner?.ShowMessage("Reloading...");
-            yield return LerpLocal(transform, lowPos, lowRot, t1);
 
-            // ilabas ang magazine
-            if (magazine) yield return LerpLocal(magazine, magRest + Vector3.down * 0.09f, magazine.localRotation, t2 * 0.25f);
-            int needed = Mathf.Min(magazineSize - ammoInMagazine, owner.darts);
+            yield return LerpLocal(
+                transform, lowPos, lowRot, t1);
+
+            if (magazine != null)
+            {
+                yield return LerpLocal(
+                    magazine,
+                    magRest + Vector3.down * 0.09f,
+                    magazine.localRotation,
+                    t2 * 0.25f);
+            }
+
+            int needed = Mathf.Min(
+                magazineSize - ammoInMagazine,
+                owner.darts);
+
             for (int i = 0; i < needed; i++)
             {
-                ammoInMagazine++; owner.darts--;
+                ammoInMagazine++;
+                owner.darts--;
+
                 RefreshVisuals();
-                yield return new WaitForSeconds(t2 * 0.5f / Mathf.Max(1, needed));
+
+                yield return new WaitForSeconds(
+                    t2 * 0.5f / Mathf.Max(1, needed));
             }
-            if (magazine) yield return LerpLocal(magazine, magRest, magazine.localRotation, t2 * 0.25f);
-            // cycle ng bolt
-            if (bolt)
+
+            if (magazine != null)
             {
-                yield return LerpLocal(bolt, boltRest + Vector3.back * 0.05f, bolt.localRotation, 0.08f);
-                yield return LerpLocal(bolt, boltRest, bolt.localRotation, 0.08f);
+                yield return LerpLocal(
+                    magazine,
+                    magRest,
+                    magazine.localRotation,
+                    t2 * 0.25f);
             }
-            yield return LerpLocal(transform, basePos, baseRot, t3);
+
+            if (bolt != null)
+            {
+                yield return LerpLocal(
+                    bolt,
+                    boltRest + Vector3.back * 0.05f,
+                    bolt.localRotation,
+                    0.08f);
+
+                yield return LerpLocal(
+                    bolt,
+                    boltRest,
+                    bolt.localRotation,
+                    0.08f);
+            }
+
+            yield return LerpLocal(
+                transform, basePos, baseRot, t3);
+
             IsReloading = false;
-            owner?.ShowMessage("Reloaded");
+            reloadRoutine = null;
+
+            owner?.ShowMessage("Reloaded.");
         }
 
-        IEnumerator Recoil()
+        // ===================================================
+        // RECOIL
+        // ===================================================
+
+        private IEnumerator Recoil()
         {
             Vector3 p = heldPosition;
             Quaternion r = Quaternion.Euler(heldEuler);
-            yield return LerpLocal(transform, p + Vector3.back * 0.06f, r * Quaternion.Euler(-6, 0, 0), 0.05f);
-            yield return LerpLocal(transform, p, r, 0.15f);
+
+            yield return LerpLocal(
+                transform,
+                p + Vector3.back * 0.06f,
+                r * Quaternion.Euler(-6f, 0f, 0f),
+                0.05f);
+
+            yield return LerpLocal(
+                transform, p, r, 0.15f);
+
+            recoilRoutine = null;
         }
 
-        IEnumerator LerpLocal(Transform tr, Vector3 toPos, Quaternion toRot, float dur)
+        private IEnumerator LerpLocal(
+            Transform target,
+            Vector3 position,
+            Quaternion rotation,
+            float duration)
         {
-            Vector3 p0 = tr.localPosition; Quaternion r0 = tr.localRotation;
-            for (float t = 0; t < dur; t += Time.deltaTime)
+            if (target == null)
+                yield break;
+
+            duration = Mathf.Max(0.01f, duration);
+
+            Vector3 startPosition = target.localPosition;
+            Quaternion startRotation = target.localRotation;
+
+            float elapsed = 0f;
+
+            while (elapsed < duration)
             {
-                float k = Mathf.SmoothStep(0, 1, t / dur);
-                tr.localPosition = Vector3.Lerp(p0, toPos, k);
-                tr.localRotation = Quaternion.Slerp(r0, toRot, k);
+                elapsed += Time.deltaTime;
+
+                float t = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    Mathf.Clamp01(elapsed / duration));
+
+                target.localPosition = Vector3.Lerp(
+                    startPosition, position, t);
+
+                target.localRotation = Quaternion.Slerp(
+                    startRotation, rotation, t);
+
                 yield return null;
             }
-            tr.localPosition = toPos; tr.localRotation = toRot;
+
+            target.localPosition = position;
+            target.localRotation = rotation;
         }
+
+        // ===================================================
+        // AMMO VISUALS
+        // ===================================================
 
         public void RefreshVisuals()
         {
             if (ammoLights != null)
+            {
                 for (int i = 0; i < ammoLights.Length; i++)
-                    ItemMaterials.SetEmission(ammoLights[i], i < ammoInMagazine ? LightOn : Color.black);
-            if (chamberDart) chamberDart.gameObject.SetActive(ammoInMagazine > 0);
+                {
+                    if (ammoLights[i] == null)
+                        continue;
+
+                    ItemMaterials.SetEmission(
+                        ammoLights[i],
+                        i < ammoInMagazine
+                            ? LightOn
+                            : Color.black);
+                }
+            }
+
+            if (chamberDart != null)
+            {
+                chamberDart.gameObject.SetActive(
+                    ammoInMagazine > 0);
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (reloadRoutine != null)
+            {
+                StopCoroutine(reloadRoutine);
+                reloadRoutine = null;
+                IsReloading = false;
+            }
+
+            if (recoilRoutine != null)
+            {
+                StopCoroutine(recoilRoutine);
+                recoilRoutine = null;
+            }
+
+            if (registeredInInventory && cam != null)
+            {
+                transform.localPosition = heldPosition;
+                transform.localRotation =
+                    Quaternion.Euler(heldEuler);
+            }
         }
     }
 }

@@ -5390,7 +5390,6 @@ GameObject:
   m_Component:
   - component: {fileID: 8046299228857002811}
   - component: {fileID: 833105809392303723}
-  - component: {fileID: 7756404006337850021}
   - component: {fileID: 5269116113731338590}
   m_Layer: 0
   m_Name: Trap
@@ -5478,10 +5477,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::HauntedItems.TrapItem
   stunDuration: 60
   armDelay: 1.5
-  armOnStart: 1
+  armOnStart: 0
   ignoreAlreadyStunned: 1
-  enemyTag: Enemy
   autoAddReceiver: 1
+  enemyTag: Enemy
   scanMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -5493,21 +5492,7 @@ MonoBehaviour:
   openAngle: 8
   closedAngle: 145
   snapSound: {fileID: 0}
---- !u!114 &7756404006337850021
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4032974197300761368}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fb7e7ed3eebedd244997e887cfea3309, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::HauntedItems.PickupItem
-  kind: 2
-  amount: 1
-  displayName: Bear Trap
+  showDebugLogs: 1
 --- !u!65 &5269116113731338590
 BoxCollider:
   m_ObjectHideFlags: 0

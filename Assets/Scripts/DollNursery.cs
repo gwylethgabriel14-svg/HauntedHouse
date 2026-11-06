@@ -31,6 +31,14 @@ public class DollNursery : MonoBehaviour
     [Tooltip("0 = iba-iba kada laro. Maglagay ng numero para pare-pareho (pang-test).")]
     public int seed = 0;
 
+    [Header("Audio (i-drag ang clip dito, optional)")]
+    [Tooltip("Tuloy-tuloy habang gising ang dolls. Humihinto pag kumalma.")]
+    public AudioClip alertLoop;
+    [Range(0f, 1f)] public float volume = 0.8f;
+    [Tooltip("0 = parang nasa tenga mo lang, 1 = lumalakas habang papalapit sa nursery.")]
+    [Range(0f, 1f)] public float spatialBlend = 1f;
+    public float maxHearDistance = 15f;
+
     [Header("Materials (the menu assigns these)")]
     public Material porcelainMat;
     public Material dressMat;
@@ -45,6 +53,8 @@ public class DollNursery : MonoBehaviour
     PlayerController player;
     float lastInside = -99f;
 
+    AudioSource loopSource;
+
     public Bounds WorldBounds
     {
         get { return new Bounds(transform.position + Vector3.up * size.y * 0.5f, size); }
@@ -53,7 +63,39 @@ public class DollNursery : MonoBehaviour
     // Awake runs before any doll's Start, so every doll remembers its NEW spot as "home".
     void Awake()
     {
+        SetupAudio();
         if (scatterOnStart) Scatter();
+    }
+
+    void SetupAudio()
+    {
+        loopSource = gameObject.AddComponent<AudioSource>();
+        loopSource.playOnAwake = false;
+        loopSource.loop = true;
+        loopSource.clip = alertLoop;
+        loopSource.volume = volume;
+        loopSource.spatialBlend = spatialBlend;
+        loopSource.maxDistance = maxHearDistance;
+        loopSource.rolloffMode = AudioRolloffMode.Linear;
+    }
+
+    void SetAlert(bool value)
+    {
+        if (Alert == value) return;
+        Alert = value;
+
+        if (value)
+        {
+            if (alertLoop != null)
+            {
+                loopSource.clip = alertLoop;
+                loopSource.Play();
+            }
+        }
+        else
+        {
+            loopSource.Stop();
+        }
     }
 
     void Scatter()
@@ -137,12 +179,12 @@ public class DollNursery : MonoBehaviour
 
         if (inside)
         {
-            Alert = true;
+            SetAlert(true);
             lastInside = Time.time;
         }
         else if (Alert && Time.time - lastInside > calmDelay)
         {
-            Alert = false;
+            SetAlert(false);
         }
     }
 
@@ -150,5 +192,8 @@ public class DollNursery : MonoBehaviour
     {
         Gizmos.color = new Color(1f, 0.3f, 0.3f, 0.9f);
         Gizmos.DrawWireCube(WorldBounds.center, size);
+
+        Gizmos.color = new Color(1f, 0.8f, 0.2f, 0.4f);
+        Gizmos.DrawWireSphere(WorldBounds.center, maxHearDistance);
     }
 }

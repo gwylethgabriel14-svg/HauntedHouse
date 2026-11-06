@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 8451780747336362010}
   - component: {fileID: 6032096299454528116}
   - component: {fileID: 6379516545363428236}
+  - component: {fileID: 129512461495260292}
   m_Layer: 0
   m_Name: Key
   m_TagString: Untagged
@@ -50,7 +51,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 519995356603145387}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -125,3 +126,30 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6404d6a70d5bc471590c472e4bde92bd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::KeyItem
+  icon: {fileID: 0}
+--- !u!114 &129512461495260292
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519995356603145387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dc4c3ba07ff424488cd034056c5cd0f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::KeyVisualBuilder
+  buildOnAwake: 1
+  rebuildInEditor: 0
+  keyMaterial: {fileID: 0}
+  keyColor: {r: 0.82, g: 0.67, b: 0.22, a: 1}
+  metallicLook: 1
+  rotate: 1
+  rotateSpeed: 45
+  floatMotion: 1
+  floatAmount: 0.05
+  floatSpeed: 1.5
+  addGlow: 1
+  glowColor: {r: 1, g: 0.85, b: 0.35, a: 1}
+  glowIntensity: 1.25
+  glowRange: 2

@@ -1,86 +1,186 @@
 
 using UnityEngine;
- 
-// UPDATED: the player now faces the door when hiding (so the Interactor can hit the
-// door to leave) and faces out of the locker when leaving.
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
+// Attach to the locker/closet object that implements IInteractable.
+// The normal Interactor enters the locker. E can also exit independently
+// of the interaction raycast, so the player does not need to look at the door.
 public class HidingSpot : MonoBehaviour, IInteractable
 {
+    [Header("Positions")]
     public Transform hidePoint;
     public Transform exitPoint;
- 
-    bool inside;
- 
+
+    [Header("Peek View")]
+    [Tooltip("Optional: place this in front of the locker opening/slit. While hidden, the player faces this point.")]
+    public Transform peekLookPoint;
+
+    [Header("Unhide")]
+    [Tooltip("Allows E to leave even when the interaction raycast cannot hit the locker.")]
+    public bool pressEToUnhide = true;
+
+    private bool inside;
+    private PlayerController hiddenPlayer;
+    private int lastInteractionFrame = -1;
+
     public bool IsOccupied => inside;
     public string Prompt => inside ? "Press E to Unhide" : "Press E to Hide";
- 
+
+    private void Update()
+    {
+        if (!pressEToUnhide || !inside || hiddenPlayer == null)
+            return;
+
+        if (Time.frameCount == lastInteractionFrame)
+            return;
+
+        if (UnhideKeyPressed())
+            Leave(hiddenPlayer);
+    }
+
+    private bool UnhideKeyPressed()
+    {
+#if ENABLE_INPUT_SYSTEM
+        if (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+            return true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+        if (Input.GetKeyDown(KeyCode.E))
+            return true;
+#endif
+        return false;
+    }
+
     public void Interact(PlayerController player)
     {
+        if (player == null || Time.frameCount == lastInteractionFrame)
+            return;
+
         if (inside)
         {
-            Leave(player);
-            return;
+            if (hiddenPlayer == player)
+                Leave(player);
         }
-
-        Hide(player);
+        else
+        {
+            Hide(player);
+        }
     }
 
     public void Hide(PlayerController player)
     {
+        if (player == null || inside)
+            return;
+
+        if (hidePoint == null)
+        {
+            Debug.LogWarning(
+                "HidingSpot '" + name +
+                "' is missing Hide Point. Assign it in the Inspector.",
+                this);
+            return;
+        }
+
+        hiddenPlayer = player;
         inside = true;
+        lastInteractionFrame = Time.frameCount;
+
         MoveTo(player, hidePoint, true);
         player.Hide(this);
     }
 
     public void Leave(PlayerController player)
     {
-        inside = false;
-        MoveTo(player, exitPoint, false);
-        player.CurrentHidingSpot = null;
-        player.IsHidden = false;
-        player.CanMove = true;
-    }
+        if (!inside)
+            return;
 
-    void MoveTo(PlayerController player, Transform target, bool hide)
-    {
-        if (target == null)
-        {
-            target = hide ? hidePoint : exitPoint;
-        }
+        if (hiddenPlayer != null)
+            player = hiddenPlayer;
 
-        if (target == null)
+        if (player == null)
+            return;
+
+        if (exitPoint == null)
         {
-            player.IsHidden = hide;
-            player.CanMove = !hide;
+            Debug.LogWarning(
+                "HidingSpot '" + name +
+                "' is missing Exit Point. Assign it in the Inspector.",
+                this);
             return;
         }
 
-        Vector3 front = transform.forward;
-        if (hide && hidePoint != null && exitPoint != null)
-        {
-            Vector3 dir = exitPoint.position - hidePoint.position;
-            if (dir.sqrMagnitude > 0.0001f)
-                front = dir.normalized;
-        }
-        if (front.sqrMagnitude <= 0.0001f)
-            front = transform.forward;
+        lastInteractionFrame = Time.frameCount;
+        MoveTo(player, exitPoint, false);
 
-        Quaternion targetRotation = Quaternion.LookRotation(front.normalized, Vector3.up);
+        player.CurrentHidingSpot = null;
+        player.IsHidden = false;
+        player.CanMove = true;
 
-        var cc = player.GetComponent<CharacterController>();
-        if (cc != null)
-        {
+        inside = false;
+        hiddenPlayer = null;
+    }
+
+    private void MoveTo(
+        PlayerController player,
+        Transform target,
+        bool hiding)
+    {
+        Vector3 forward = FindFacingDirection(target, hiding);
+        Quaternion rotation =
+            Quaternion.LookRotation(forward, Vector3.up);
+
+        CharacterController cc =
+            player.GetComponent<CharacterController>();
+
+        bool wasEnabled = cc != null && cc.enabled;
+
+        if (wasEnabled)
             cc.enabled = false;
-            player.transform.position = target.position;
-            player.transform.rotation = targetRotation;
-            if (player.cam != null) player.cam.localRotation = Quaternion.identity;
+
+        player.transform.SetPositionAndRotation(
+            target.position, rotation);
+
+        if (player.cam != null)
+            player.cam.localRotation = Quaternion.identity;
+
+        if (wasEnabled)
             cc.enabled = true;
+    }
+
+    private Vector3 FindFacingDirection(
+        Transform target,
+        bool hiding)
+    {
+        Vector3 forward;
+
+        if (hiding && peekLookPoint != null)
+        {
+            forward =
+                peekLookPoint.position - target.position;
+        }
+        else if (hidePoint != null && exitPoint != null)
+        {
+            forward =
+                exitPoint.position - hidePoint.position;
         }
         else
         {
-            player.transform.position = target.position;
-            player.transform.rotation = targetRotation;
-            if (player.cam != null) player.cam.localRotation = Quaternion.identity;
+            forward = target.forward;
         }
+
+        forward.y = 0f;
+
+        if (forward.sqrMagnitude < 0.0001f)
+        {
+            forward = target.forward;
+            forward.y = 0f;
+        }
+
+        if (forward.sqrMagnitude < 0.0001f)
+            forward = Vector3.forward;
+
+        return forward.normalized;
     }
 }
- 

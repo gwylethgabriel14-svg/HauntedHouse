@@ -1,3 +1,5 @@
+
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
@@ -5,144 +7,202 @@ using UnityEngine.AI;
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyAI : MonoBehaviour
 {
-    enum State { Patrol, Idle, Investigate, Chase, Search }
+    private enum State
+    {
+        Patrol,
+        Idle,
+        Investigate,
+        Chase,
+        Search
+    }
 
-    [Header("Refs")]
+    [Header("References")]
     public Transform player;
     public Transform[] waypoints;
     public LayerMask obstacleMask;
 
     [Header("Speeds")]
     public float patrolSpeed = 2f;
-    public float chaseSpeed = 4f;
+    public float chaseSpeed = 4.5f;
     public float speedPerPage = 0.35f;
 
-    [Header("Senses")]
-    public float sightRange = 12f;
-    public float sightAngle = 100f;
+    [Header("WIDER DETECTION")]
+    public float sightRange = 22f;
+
+    [Range(20f, 360f)]
+    public float sightAngle = 150f;
+
     public float catchDistance = 1.6f;
 
-    [Header("Multi-floor (taas/baba)")]
-    [Tooltip("Max na pagkakaiba ng taas para mahuli ang player. Mas mataas dito = ibang palapag, hindi pa abot.")]
+    [Header("Multi-floor Detection")]
     public float catchHeight = 1.5f;
-    [Tooltip("Max na pagkakaiba ng taas para marinig ang yabag ng player.")]
     public float hearHeight = 2.5f;
-    [Tooltip("Max na pagkakaiba ng taas para makita ang player.")]
     public float sightHeight = 3.5f;
 
-    [Header("Timers")]
-    public float loseSightTime = 3f;
-    public float searchTime = 6f;
+    [Header("AGGRESSIVE CHASE")]
+    [Tooltip("Seconds before abandoning the chase after losing the player.")]
+    public float loseSightTime = 18f;
 
-    [Header("Fair start")]
+    [Tooltip("How long Eleanor searches after losing a chase.")]
+    public float searchTime = 12f;
+
+    [Tooltip("While chasing, can track player movement through nearby sounds.")]
+    public bool trackRunningPlayer = true;
+
+    public float chaseHearingRange = 20f;
+    public float chaseHearingHeight = 6f;
+
+    [Tooltip("How often to update the path to the target.")]
+    public float chaseRepathInterval = 0.15f;
+
+    [Tooltip("Briefly keep pursuing the player even after line of sight is broken.")]
+    public float pursuitTrackingSeconds = 6f;
+
+    [Tooltip("Enable if you want Eleanor to keep chasing for a long time.")]
+    public bool persistentChase = true;
+
+    [Header("Fair Start")]
     public float startDelay = 8f;
 
-    [Header("Random spawn")]
-    [Tooltip("Kapag naka-on, random ang pwesto ng enemy sa simula ng laro (hindi kung saan lang siya nakalagay sa scene).")]
+    [Header("Random Spawn")]
     public bool randomSpawn = true;
-    [Tooltip("Pinakamalapit na distansya mula sa player (bedroom) na pwede siyang mag-spawn.")]
     public float minSpawnDistance = 25f;
-    [Tooltip("Opsyonal. Kung may nakalagay dito, ito lang ang pagpipilian. Kung wala, ang mga waypoint ang gagamitin.")]
     public Transform[] spawnPoints;
-    [Tooltip("Gagamitin lang kung walang spawn points at walang waypoints.")]
     public float fallbackSpawnRadius = 60f;
 
     [Header("Wandering")]
     public Vector2 idleTime = new Vector2(2f, 5f);
     public float lookAngle = 70f;
     public float lookSpeed = 1.2f;
-    [Range(0f, 1f)] public float huntChance = 0.15f;
+
+    [Range(0f, 1f)]
+    public float huntChance = 0.15f;
+
     public float huntChancePerPage = 0.1f;
     public float searchRadius = 5f;
     public float stuckTime = 3f;
-
-    [Header("Patrol fallback (used if no waypoints are assigned)")]
     public float fallbackPatrolRadius = 15f;
 
     [Header("Animations")]
     public Animator anim;
-    public string walkingParameter = "IsWalking";   // Bool
-    public string runningParameter = "IsRunning";   // Bool (optional, true habang humahabol)
-    public string attackParameter = "Attack";       // Trigger
-    [Tooltip("Naka-off dapat. Kapag naka-on, nag-aaway ang animation at NavMeshAgent.")]
+    public string walkingParameter = "IsWalking";
+    public string runningParameter = "IsRunning";
+    public string attackParameter = "Attack";
+
     public bool forceNoRootMotion = true;
-    [Tooltip("Para hindi huminto ang animation kapag wala sa screen.")]
     public bool alwaysAnimate = true;
 
     [Header("Debug")]
     public bool debugLogs = true;
 
-    // Script property (not an Animator parameter). Other scripts may use it.
-    public bool IsChasing => state == State.Chase;
+    public bool IsChasing
+    {
+        get { return state == State.Chase; }
+    }
 
-    public event System.Action ChaseStarted;
+    public event Action ChaseStarted;
 
-    NavMeshAgent agent;
-    PlayerController pc;
+    private NavMeshAgent agent;
+    private PlayerController pc;
 
-    State state;
+    private State state = State.Patrol;
 
-    int wpIndex = -1;
-    int prevWpIndex = -1;
-    int pages;
+    private int wpIndex = -1;
+    private int prevWpIndex = -1;
+    private int pages;
 
-    float timer;
-    float baseChase;
-    float basePatrol;
+    private float basePatrol;
+    private float baseChase;
 
-    bool waiting;
-    bool hasCaughtPlayer;
-    bool warnedNoNavMesh;
+    private float stateTimer;
+    private float lostTimer;
+    private float nextRepath;
+    private float stuckTimer;
 
-    float idleStart;
-    float idleEnd;
-    float idleYaw;
+    private float idleStart;
+    private float idleEnd;
+    private float idleYaw;
 
-    float stuckTimer;
+    private float chaseStartedAt;
+    private float lastSeenAt;
+    private Vector3 lastKnownPos;
 
-    Vector3 lastKnownPos;
+    private bool waiting;
+    private bool caughtPlayer;
+    private bool warnedNoNavMesh;
 
-    // animator
-    readonly HashSet<string> animParams = new HashSet<string>();
-    bool animReady;
+    private readonly HashSet<string> animParameters =
+        new HashSet<string>();
 
-    void Start()
+    private bool animatorReady;
+
+    // =====================================================
+    // INITIALIZATION
+    // =====================================================
+
+    private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
 
+        if (anim == null)
+            anim = GetComponentInChildren<Animator>(true);
+    }
+
+    private void Start()
+    {
         if (player == null)
         {
-            var p = GameObject.FindGameObjectWithTag("Player");
-            if (p == null) p = GameObject.Find("Player");
-            if (p != null) player = p.transform;
+            GameObject found = null;
+
+            try
+            {
+                found = GameObject.FindGameObjectWithTag(
+                    "Player");
+            }
+            catch (UnityException)
+            {
+                // Player tag has not been created.
+            }
+
+            if (found == null)
+                found = GameObject.Find("Player");
+
+            if (found != null)
+                player = found.transform;
         }
-        if (player != null) pc = player.GetComponent<PlayerController>();
 
-        EnsureAnimator();
-
-        if (player == null)
+        if (player != null)
         {
-            Debug.LogError("EnemyAI '" + name + "': walang Player. I-assign ang 'player' o lagyan ng tag na Player.", this);
-            enabled = false;
-            return;
+            pc = player.GetComponent<PlayerController>();
+
+            if (pc == null)
+                pc = player.GetComponentInParent<PlayerController>();
+
+            if (pc == null)
+                pc = player.GetComponentInChildren<PlayerController>();
+
+            if (pc != null)
+                player = pc.transform;
         }
 
-        pc = player.GetComponentInParent<PlayerController>();
-        if (pc == null) pc = player.GetComponentInChildren<PlayerController>();
-
-        if (pc == null)
+        if (player == null || pc == null)
         {
-            Debug.LogError("EnemyAI '" + name + "': walang PlayerController sa player.", this);
+            Debug.LogError(
+                "[ENEMY AI] Player or PlayerController " +
+                "not found. Assign the real Player " +
+                "in Woman > EnemyAI.",
+                this);
+
             enabled = false;
             return;
         }
 
         SetupAnimator();
 
-        baseChase = chaseSpeed;
         basePatrol = patrolSpeed;
+        baseChase = chaseSpeed;
 
-        if (!agent.isOnNavMesh)
+        if (agent.enabled && !agent.isOnNavMesh)
         {
             NavMeshHit hit;
 
@@ -156,227 +216,308 @@ public class EnemyAI : MonoBehaviour
             }
         }
 
-        if (randomSpawn && agent.isOnNavMesh) PlaceAtRandomSpawn();
+        if (randomSpawn && agent.isOnNavMesh)
+            PlaceAtRandomSpawn();
+
+        if (agent.enabled && agent.isOnNavMesh)
+        {
+            agent.stoppingDistance = 0.45f;
+            agent.autoBraking = true;
+
+            GoPatrol();
+
+            if (startDelay > 0f)
+            {
+                waiting = true;
+                agent.isStopped = true;
+            }
+        }
+        else
+        {
+            Debug.LogWarning(
+                "[ENEMY AI] Eleanor is not on a NavMesh. " +
+                "Bake the NavMesh before testing chase.",
+                this);
+        }
 
         if (debugLogs)
         {
-            Debug.Log("EnemyAI '" + name + "' started. On NavMesh: " + agent.isOnNavMesh +
-                      ", waypoints: " + (waypoints == null ? 0 : waypoints.Length), this);
-
-            if (waypoints == null || waypoints.Length == 0)
-            {
-                Debug.LogWarning("EnemyAI '" + name + "' has NO waypoints assigned. Using random patrol points instead.", this);
-            }
-
-            if (!agent.isOnNavMesh)
-            {
-                Debug.LogWarning("EnemyAI '" + name + "' is NOT on a NavMesh. Bake the NavMesh (Window > AI > Navigation) and place the enemy on it.", this);
-            }
-        }
-
-        GoPatrol();
-
-        if (startDelay > 0f)
-        {
-            waiting = true;
-            agent.isStopped = true;
+            Debug.Log(
+                "[ENEMY AI] Ready. Sight: " +
+                sightRange +
+                " | Angle: " +
+                sightAngle +
+                " | Chase memory: " +
+                loseSightTime +
+                "s",
+                this);
         }
     }
 
-    // ------------------------------------------------ random spawn
-    void PlaceAtRandomSpawn()
-    {
-        var valid = new List<Vector3>();
-        Vector3 farthest = transform.position;
-        float farthestDist = -1f;
+    // =====================================================
+    // RANDOM SPAWN
+    // =====================================================
 
-        // mga pagpipilian: spawnPoints, kung wala ay waypoints
-        Transform[] pool = (spawnPoints != null && spawnPoints.Length > 0) ? spawnPoints : waypoints;
+    private void PlaceAtRandomSpawn()
+    {
+        List<Vector3> valid = new List<Vector3>();
+
+        Vector3 farthest = transform.position;
+        float farthestDistance = -1f;
+
+        Transform[] pool =
+            spawnPoints != null && spawnPoints.Length > 0
+                ? spawnPoints
+                : waypoints;
 
         if (pool != null && pool.Length > 0)
         {
-            foreach (var t in pool)
+            foreach (Transform point in pool)
             {
-                if (t == null) continue;
-                Consider(t.position, valid, ref farthest, ref farthestDist);
+                if (point == null)
+                    continue;
+
+                ConsiderSpawn(
+                    point.position,
+                    valid,
+                    ref farthest,
+                    ref farthestDistance);
             }
         }
         else
         {
-            // walang points: random na pwesto sa NavMesh
             for (int i = 0; i < 60; i++)
             {
-                Vector3 p = transform.position + Random.insideUnitSphere * fallbackSpawnRadius;
-                Consider(p, valid, ref farthest, ref farthestDist);
+                Vector3 position =
+                    transform.position +
+                    UnityEngine.Random.insideUnitSphere *
+                    fallbackSpawnRadius;
+
+                ConsiderSpawn(
+                    position,
+                    valid,
+                    ref farthest,
+                    ref farthestDistance);
             }
         }
 
-        Vector3 spot;
         if (valid.Count > 0)
         {
-            spot = valid[Random.Range(0, valid.Count)];
+            agent.Warp(
+                valid[UnityEngine.Random.Range(
+                    0,
+                    valid.Count)]);
         }
-        else if (farthestDist >= 0f)
+        else if (farthestDistance >= 0f)
         {
-            // walang umabot sa minimum na layo, kunin ang pinakamalayo
-            spot = farthest;
-            if (debugLogs)
-                Debug.LogWarning("EnemyAI '" + name + "': walang spawn point na " + minSpawnDistance +
-                                 "+ ang layo sa player. Ginamit ang pinakamalayo (" + farthestDist.ToString("0.0") + ").", this);
+            agent.Warp(farthest);
         }
-        else
+
+        transform.rotation = Quaternion.Euler(
+            0f,
+            UnityEngine.Random.Range(0f, 360f),
+            0f);
+    }
+
+    private void ConsiderSpawn(
+        Vector3 position,
+        List<Vector3> valid,
+        ref Vector3 farthest,
+        ref float farthestDistance)
+    {
+        NavMeshHit hit;
+
+        if (!NavMesh.SamplePosition(
+            position,
+            out hit,
+            3f,
+            NavMesh.AllAreas))
         {
             return;
         }
 
-        agent.Warp(spot);
-        transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+        float distance =
+            Vector3.Distance(hit.position, player.position);
 
-        if (debugLogs)
-            Debug.Log("EnemyAI '" + name + "' nag-spawn sa " + spot + ", layo sa player: " +
-                      Vector3.Distance(spot, player.position).ToString("0.0"), this);
-    }
-
-    void Consider(Vector3 pos, List<Vector3> valid, ref Vector3 farthest, ref float farthestDist)
-    {
-        NavMeshHit hit;
-        if (!NavMesh.SamplePosition(pos, out hit, 3f, NavMesh.AllAreas)) return;
-
-        float d = Vector3.Distance(hit.position, player.position);
-
-        if (d > farthestDist)
+        if (distance > farthestDistance)
         {
-            farthestDist = d;
+            farthestDistance = distance;
             farthest = hit.position;
         }
 
-        if (d >= minSpawnDistance) valid.Add(hit.position);
+        if (distance >= minSpawnDistance)
+            valid.Add(hit.position);
     }
 
-    // ------------------------------------------------ animator
-    void SetupAnimator()
-    {
-        animReady = false;
-        animParams.Clear();
+    // =====================================================
+    // ANIMATION
+    // =====================================================
 
-        if (anim == null) anim = GetComponentInChildren<Animator>(true);
+    private void SetupAnimator()
+    {
+        animatorReady = false;
+        animParameters.Clear();
+
+        if (anim == null)
+            anim = GetComponentInChildren<Animator>(true);
 
         if (anim == null)
         {
-            if (debugLogs)
-                Debug.LogWarning("EnemyAI '" + name + "': walang Animator. Buksan ang Haunted House > Enemy Animation Fixer.", this);
-            return;
+            RuntimeAnimatorController controller =
+                Resources.Load<RuntimeAnimatorController>(
+                    "WomanController");
+
+            if (controller != null)
+            {
+                anim = GetComponent<Animator>();
+
+                if (anim == null)
+                    anim = gameObject.AddComponent<Animator>();
+
+                anim.runtimeAnimatorController = controller;
+            }
         }
 
-        if (forceNoRootMotion) anim.applyRootMotion = false;
-        if (alwaysAnimate) anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        if (anim == null)
+            return;
 
         if (anim.runtimeAnimatorController == null)
         {
-            if (debugLogs)
-                Debug.LogWarning("EnemyAI '" + name + "': walang Controller ang Animator. Buksan ang Haunted House > Enemy Animation Fixer.", this);
+            anim.runtimeAnimatorController =
+                Resources.Load<RuntimeAnimatorController>(
+                    "WomanController");
+        }
+
+        if (forceNoRootMotion)
+            anim.applyRootMotion = false;
+
+        if (alwaysAnimate)
+            anim.cullingMode =
+                AnimatorCullingMode.AlwaysAnimate;
+
+        if (anim.runtimeAnimatorController == null)
+            return;
+
+        foreach (AnimatorControllerParameter parameter
+            in anim.parameters)
+        {
+            animParameters.Add(parameter.name);
+        }
+
+        animatorReady = true;
+    }
+
+    private void SetBool(string parameter, bool value)
+    {
+        if (animatorReady &&
+            !string.IsNullOrEmpty(parameter) &&
+            animParameters.Contains(parameter))
+        {
+            anim.SetBool(parameter, value);
+        }
+    }
+
+    private void SetTrigger(string parameter)
+    {
+        if (animatorReady &&
+            !string.IsNullOrEmpty(parameter) &&
+            animParameters.Contains(parameter))
+        {
+            anim.SetTrigger(parameter);
+        }
+    }
+
+    private void UpdateAnimations()
+    {
+        if (!animatorReady ||
+            agent == null ||
+            !agent.enabled ||
+            !agent.isOnNavMesh)
+        {
             return;
         }
 
-        foreach (var p in anim.parameters) animParams.Add(p.name);
-        animReady = true;
-
-        if (debugLogs)
-        {
-            if (!animParams.Contains(walkingParameter))
-                Debug.LogWarning("EnemyAI '" + name + "': walang parameter na '" + walkingParameter + "' sa Animator Controller.", this);
-            if (!animParams.Contains(attackParameter))
-                Debug.LogWarning("EnemyAI '" + name + "': walang parameter na '" + attackParameter + "' sa Animator Controller.", this);
-        }
-    }
-
-    void SetBool(string param, bool value)
-    {
-        if (animReady && !string.IsNullOrEmpty(param) && animParams.Contains(param))
-            anim.SetBool(param, value);
-    }
-
-    void SetTrigger(string param)
-    {
-        if (animReady && !string.IsNullOrEmpty(param) && animParams.Contains(param))
-            anim.SetTrigger(param);
-    }
-
-    // Updates the Animator parameters.
-    void UpdateAnimations()
-    {
-        if (!animReady) return;
-
         bool moving =
             !waiting &&
-            !hasCaughtPlayer &&
+            !caughtPlayer &&
             !agent.isStopped &&
             agent.velocity.magnitude > 0.1f;
 
         SetBool(walkingParameter, moving);
-        SetBool(runningParameter, moving && state == State.Chase);
+
+        SetBool(
+            runningParameter,
+            moving && state == State.Chase);
+
+        if (!moving || waiting || caughtPlayer)
+        {
+            anim.speed = 1f;
+        }
+        else if (state == State.Chase)
+        {
+            anim.speed = 1.15f;
+        }
+        else
+        {
+            anim.speed = Mathf.Clamp(
+                agent.speed / Mathf.Max(0.5f, patrolSpeed),
+                0.85f,
+                1.4f);
+        }
     }
 
-    // ------------------------------------------------ update
-    void Update()
-    {
-        if (player == null || pc == null) return;
+    // =====================================================
+    // MAIN AI UPDATE
+    // =====================================================
 
-        if (!agent.isOnNavMesh)
+    private void Update()
+    {
+        if (player == null || pc == null)
+            return;
+
+        if (agent == null ||
+            !agent.enabled ||
+            !agent.isOnNavMesh)
         {
             if (debugLogs && !warnedNoNavMesh)
             {
                 warnedNoNavMesh = true;
-                Debug.LogWarning("EnemyAI '" + name + "' is not on the NavMesh, so it cannot move.", this);
+
+                Debug.LogWarning(
+                    "[ENEMY AI] Not on NavMesh!",
+                    this);
             }
 
             return;
         }
 
-        // Wait before the enemy starts moving.
         if (waiting)
         {
-            UpdateAnimations();
-
             if (Time.timeSinceLevelLoad < startDelay)
+            {
+                UpdateAnimations();
                 return;
+            }
 
             waiting = false;
             agent.isStopped = false;
         }
 
-        // Check if the enemy caught the player.
+        if (caughtPlayer)
+            return;
+
         if (IsPlayerInCatchRange())
         {
-            if (!hasCaughtPlayer)
-            {
-                hasCaughtPlayer = true;
-
-                SetBool(walkingParameter, false);
-                SetBool(runningParameter, false);
-                SetTrigger(attackParameter);
-
-                GameManager.Instance.Lose();
-            }
-
+            CatchPlayer();
             return;
         }
 
         bool sees = CanSeePlayer();
-
-        float heightDiff = Mathf.Abs(player.position.y - transform.position.y);
-
-        // Hindi maririnig ang yabag kung nasa ibang palapag.
-        bool hears = !pc.IsHidden &&
-                     heightDiff < hearHeight &&
-                     Vector3.Distance(
-                         transform.position,
-                         player.position) < pc.CurrentNoise;
+        bool hears = CanHearPlayer();
 
         switch (state)
         {
             case State.Patrol:
-
                 if (sees)
                 {
                     StartChase();
@@ -393,11 +534,9 @@ public class EnemyAI : MonoBehaviour
                 {
                     CheckStuck();
                 }
-
                 break;
 
             case State.Idle:
-
                 if (sees)
                 {
                     StartChase();
@@ -408,23 +547,21 @@ public class EnemyAI : MonoBehaviour
                 }
                 else
                 {
-                    float yaw = idleYaw +
-                        Mathf.Sin((Time.time - idleStart) * lookSpeed)
-                        * lookAngle;
+                    float yaw =
+                        idleYaw +
+                        Mathf.Sin(
+                            (Time.time - idleStart) *
+                            lookSpeed) * lookAngle;
 
                     transform.rotation =
                         Quaternion.Euler(0f, yaw, 0f);
 
                     if (Time.time >= idleEnd)
-                    {
                         GoPatrol();
-                    }
                 }
-
                 break;
 
             case State.Investigate:
-
                 if (sees)
                 {
                     StartChase();
@@ -433,102 +570,441 @@ public class EnemyAI : MonoBehaviour
                 {
                     StartSearch();
                 }
-
                 break;
 
             case State.Chase:
-
-                if (sees)
-                {
-                    timer = 0f;
-                    lastKnownPos = player.position;
-
-                    agent.SetDestination(player.position);
-                }
-                else
-                {
-                    timer += Time.deltaTime;
-
-                    if (timer > loseSightTime)
-                    {
-                        StartSearch();
-                    }
-                }
-
+                UpdateChase(sees, hears);
                 break;
 
             case State.Search:
-
-                timer -= Time.deltaTime;
-
                 if (sees)
                 {
                     StartChase();
                 }
-                else if (timer <= 0f)
+                else if (hears)
                 {
-                    GoPatrol();
+                    Investigate(player.position);
                 }
-                else if (Arrived(0.8f))
+                else
                 {
-                    PickSearchPoint();
-                }
+                    stateTimer -= Time.deltaTime;
 
+                    if (stateTimer <= 0f)
+                        GoPatrol();
+                    else if (Arrived(0.8f))
+                        PickSearchPoint();
+                }
                 break;
         }
 
         UpdateAnimations();
     }
 
-    void EnsureAnimator()
+    // =====================================================
+    // PERSISTENT CHASE
+    // =====================================================
+
+    private void UpdateChase(bool sees, bool hears)
     {
-        if (anim != null) return;
+        agent.speed = chaseSpeed;
+        agent.isStopped = false;
 
-        anim = GetComponentInChildren<Animator>(true);
+        float heightDifference =
+            Mathf.Abs(
+                player.position.y - transform.position.y);
 
-        foreach (var name in new[] { "WomanModel", "EnemyVisual", "GhostlyWoman", "CharacterModel", "Model" })
+        float distance =
+            Vector3.Distance(
+                player.position,
+                transform.position);
+
+        bool closeEnoughToHear =
+            trackRunningPlayer &&
+            !pc.IsHidden &&
+            distance <= chaseHearingRange &&
+            heightDifference <= chaseHearingHeight;
+
+        // Fresh visual contact resets chase memory.
+        if (sees)
         {
-            if (anim != null) break;
-            var child = transform.Find(name);
-            if (child != null) anim = child.GetComponent<Animator>();
+            lostTimer = 0f;
+            lastSeenAt = Time.time;
+            lastKnownPos = player.position;
         }
-
-        if (anim == null)
+        else
         {
-            var controller = Resources.Load<RuntimeAnimatorController>("WomanController");
-            if (controller != null)
+            lostTimer += Time.deltaTime;
+
+            // While close or during the first few
+            // seconds of lost contact, Eleanor keeps
+            // trying to track the moving Player.
+            if (closeEnoughToHear &&
+                (hears ||
+                 Time.time - lastSeenAt <=
+                 pursuitTrackingSeconds))
             {
-                anim = gameObject.AddComponent<Animator>();
-                anim.runtimeAnimatorController = controller;
+                lastKnownPos = player.position;
             }
         }
 
-        if (anim != null)
+        if (Time.time >= nextRepath)
         {
-            anim.applyRootMotion = false;
-            anim.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+            TrySetDestination(lastKnownPos);
 
-            if (anim.runtimeAnimatorController == null)
+            nextRepath =
+                Time.time +
+                Mathf.Max(0.05f, chaseRepathInterval);
+        }
+
+        // Eleanor no longer gives up immediately
+        // just because the player turned a corner.
+        if (!persistentChase)
+        {
+            if (lostTimer >= loseSightTime)
+                StartSearch();
+
+            return;
+        }
+
+        if (lostTimer >= loseSightTime)
+        {
+            // If she can still hear you nearby,
+            // continue chasing.
+            if (closeEnoughToHear && hears)
             {
-                var fallback = Resources.Load<RuntimeAnimatorController>("WomanController");
-                if (fallback != null) anim.runtimeAnimatorController = fallback;
+                lostTimer =
+                    Mathf.Max(
+                        0f,
+                        loseSightTime -
+                        2f);
+
+                lastKnownPos = player.position;
+            }
+            else
+            {
+                StartSearch();
             }
         }
     }
 
-    bool Arrived(float dist)
+    private bool TrySetDestination(Vector3 position)
     {
-        return !agent.pathPending &&
-               agent.remainingDistance <= dist;
+        if (agent == null ||
+            !agent.enabled ||
+            !agent.isOnNavMesh)
+        {
+            return false;
+        }
+
+        NavMeshHit hit;
+
+        if (NavMesh.SamplePosition(
+            position,
+            out hit,
+            2f,
+            NavMesh.AllAreas))
+        {
+            return agent.SetDestination(hit.position);
+        }
+
+        // Fallback to the last valid route target.
+        return agent.SetDestination(position);
     }
 
-    void CheckStuck()
+    // =====================================================
+    // SIGHT / HEARING / CATCH
+    // =====================================================
+
+    private bool CanSeePlayer()
+    {
+        if (pc.IsHidden)
+            return false;
+
+        if (Mathf.Abs(
+            player.position.y - transform.position.y)
+            > sightHeight)
+        {
+            return false;
+        }
+
+        Vector3 eye =
+            transform.position + Vector3.up * 1.6f;
+
+        Vector3 target =
+            player.position + Vector3.up * 1f;
+
+        Vector3 direction = target - eye;
+
+        float distance = direction.magnitude;
+
+        if (distance < 0.01f || distance > sightRange)
+            return false;
+
+        float angle =
+            Vector3.Angle(
+                transform.forward,
+                direction);
+
+        if (angle > sightAngle * 0.5f)
+            return false;
+
+        // Structural walls and other Obstacle layers
+        // still block direct vision.
+        if (Physics.Raycast(
+            eye,
+            direction.normalized,
+            distance,
+            obstacleMask,
+            QueryTriggerInteraction.Ignore))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool CanHearPlayer()
+    {
+        if (pc.IsHidden)
+            return false;
+
+        if (Mathf.Abs(
+            player.position.y - transform.position.y)
+            > hearHeight)
+        {
+            return false;
+        }
+
+        float distance =
+            Vector3.Distance(
+                transform.position,
+                player.position);
+
+        return distance < pc.CurrentNoise;
+    }
+
+    private bool IsPlayerInCatchRange()
+    {
+        if (pc.IsHidden)
+            return false;
+
+        Vector3 difference =
+            player.position - transform.position;
+
+        if (Mathf.Abs(difference.y) > catchHeight)
+            return false;
+
+        difference.y = 0f;
+
+        if (difference.magnitude >= catchDistance)
+            return false;
+
+        // No grabbing through a solid wall.
+        Vector3 eye =
+            transform.position + Vector3.up * 1.3f;
+
+        Vector3 target =
+            player.position + Vector3.up * 1f;
+
+        Vector3 direction = target - eye;
+
+        if (Physics.Raycast(
+            eye,
+            direction.normalized,
+            direction.magnitude,
+            obstacleMask,
+            QueryTriggerInteraction.Ignore))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private void CatchPlayer()
+    {
+        if (caughtPlayer)
+            return;
+
+        caughtPlayer = true;
+
+        agent.isStopped = true;
+        agent.ResetPath();
+
+        SetBool(walkingParameter, false);
+        SetBool(runningParameter, false);
+        SetTrigger(attackParameter);
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.Lose();
+    }
+
+    // =====================================================
+    // PATROL
+    // =====================================================
+
+    private void GoPatrol()
+    {
+        state = State.Patrol;
+        stateTimer = 0f;
+        stuckTimer = 0f;
+
+        if (agent.isOnNavMesh)
+        {
+            agent.isStopped = false;
+            agent.speed = patrolSpeed;
+        }
+
+        PickWaypoint();
+    }
+
+    private void StartIdle()
+    {
+        state = State.Idle;
+
+        if (agent.isOnNavMesh)
+            agent.ResetPath();
+
+        idleStart = Time.time;
+
+        idleEnd =
+            idleStart +
+            UnityEngine.Random.Range(
+                idleTime.x,
+                idleTime.y);
+
+        idleYaw = transform.eulerAngles.y;
+    }
+
+    private void PickWaypoint()
+    {
+        if (waypoints == null || waypoints.Length == 0)
+        {
+            PickRandomPatrolPoint();
+            return;
+        }
+
+        int pick = -1;
+
+        float hunt = Mathf.Clamp01(
+            huntChance +
+            huntChancePerPage * pages);
+
+        if (!pc.IsHidden &&
+            Mathf.Abs(
+                player.position.y - transform.position.y)
+            <= hearHeight &&
+            UnityEngine.Random.value < hunt)
+        {
+            pick = NearestWaypoint(player.position);
+        }
+
+        if (pick < 0 || pick == wpIndex)
+        {
+            for (int i = 0; i < 12; i++)
+            {
+                int candidate =
+                    UnityEngine.Random.Range(
+                        0,
+                        waypoints.Length);
+
+                if (waypoints.Length > 2 &&
+                    (candidate == wpIndex ||
+                     candidate == prevWpIndex))
+                {
+                    continue;
+                }
+
+                pick = candidate;
+                break;
+            }
+        }
+
+        if (pick < 0)
+            pick = UnityEngine.Random.Range(
+                0,
+                waypoints.Length);
+
+        prevWpIndex = wpIndex;
+        wpIndex = pick;
+
+        Transform waypoint = waypoints[pick];
+
+        if (waypoint != null)
+        {
+            TrySetDestination(waypoint.position);
+        }
+        else
+        {
+            PickRandomPatrolPoint();
+        }
+    }
+
+    private void PickRandomPatrolPoint()
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            Vector3 point =
+                transform.position +
+                UnityEngine.Random.insideUnitSphere *
+                fallbackPatrolRadius;
+
+            point.y = transform.position.y;
+
+            NavMeshHit hit;
+
+            if (NavMesh.SamplePosition(
+                point,
+                out hit,
+                3f,
+                NavMesh.AllAreas))
+            {
+                agent.SetDestination(hit.position);
+                return;
+            }
+        }
+    }
+
+    private int NearestWaypoint(Vector3 position)
+    {
+        int best = -1;
+        float bestDistance = float.MaxValue;
+
+        for (int i = 0; i < waypoints.Length; i++)
+        {
+            Transform waypoint = waypoints[i];
+
+            if (waypoint == null)
+                continue;
+
+            float distance =
+                (waypoint.position - position).sqrMagnitude;
+
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
+    private bool Arrived(float threshold)
+    {
+        return agent.isOnNavMesh &&
+               !agent.pathPending &&
+               agent.hasPath &&
+               agent.remainingDistance <= threshold;
+    }
+
+    private void CheckStuck()
     {
         if (agent.velocity.sqrMagnitude < 0.05f)
         {
             stuckTimer += Time.deltaTime;
 
-            if (stuckTimer > stuckTime)
+            if (stuckTimer >= stuckTime)
             {
                 stuckTimer = 0f;
                 PickWaypoint();
@@ -540,316 +1016,166 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    bool IsPlayerInCatchRange()
+    // =====================================================
+    // CHASE / SEARCH / INVESTIGATE
+    // =====================================================
+
+    private void StartChase()
     {
-        if (pc.IsHidden) return false;
+        bool enteringChase = state != State.Chase;
 
-        Vector3 flat = player.position - transform.position;
-
-        // Ibang palapag? Hindi pa abot.
-        if (Mathf.Abs(flat.y) > catchHeight) return false;
-
-        flat.y = 0f;
-
-        return flat.magnitude < catchDistance;
-    }
-
-    bool CanSeePlayer()
-    {
-        if (pc.IsHidden) return false;
-
-        // Hindi nakikita ang player sa ibang palapag.
-        if (Mathf.Abs(player.position.y - transform.position.y) > sightHeight)
-            return false;
-
-        Vector3 eye =
-            transform.position + Vector3.up * 1.6f;
-
-        Vector3 target =
-            player.position + Vector3.up * 1f;
-
-        Vector3 dir = target - eye;
-
-        float dist = dir.magnitude;
-
-        if (dist > sightRange) return false;
-
-        if (Vector3.Angle(transform.forward, dir) >
-            sightAngle * 0.5f)
-        {
-            return false;
-        }
-
-        if (Physics.Raycast(
-            eye,
-            dir.normalized,
-            dist,
-            obstacleMask))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    void GoPatrol()
-    {
-        state = State.Patrol;
-
-        agent.speed = patrolSpeed;
-
-        stuckTimer = 0f;
-
-        PickWaypoint();
-    }
-
-    void StartIdle()
-    {
-        state = State.Idle;
-
-        agent.ResetPath();
-
-        idleStart = Time.time;
-
-        idleEnd = idleStart +
-            Random.Range(idleTime.x, idleTime.y);
-
-        idleYaw = transform.eulerAngles.y;
-    }
-
-    void PickWaypoint()
-    {
-        // No waypoints assigned: wander to random points on the NavMesh.
-        if (waypoints == null || waypoints.Length == 0)
-        {
-            PickRandomPatrolPoint();
-            return;
-        }
-
-        int pick = -1;
-
-        float hunt =
-            huntChance + huntChancePerPage * pages;
-
-        // Sometimes head toward the player's area.
-        // (Sa parehong palapag lang, para hindi niya "alam" kung nasaan ka sa ibang floor.)
-        if (!pc.IsHidden &&
-            Mathf.Abs(player.position.y - transform.position.y) < hearHeight &&
-            Random.value < hunt)
-        {
-            pick = NearestWaypoint(player.position);
-        }
-
-        // Otherwise choose a random waypoint.
-        if (pick < 0 || pick == wpIndex)
-        {
-            for (int i = 0; i < 12; i++)
-            {
-                int r = Random.Range(0, waypoints.Length);
-
-                if (waypoints.Length > 2 &&
-                    (r == wpIndex || r == prevWpIndex))
-                {
-                    continue;
-                }
-
-                pick = r;
-
-                break;
-            }
-
-            if (pick < 0)
-            {
-                pick = Random.Range(0, waypoints.Length);
-            }
-        }
-
-        prevWpIndex = wpIndex;
-
-        wpIndex = pick;
-
-        if (waypoints[wpIndex] == null)
-        {
-            if (debugLogs)
-            {
-                Debug.LogWarning("EnemyAI '" + name + "': waypoint " + wpIndex + " is empty (None) in the Inspector.", this);
-            }
-
-            PickRandomPatrolPoint();
-            return;
-        }
-
-        agent.SetDestination(
-            waypoints[wpIndex].position);
-    }
-
-    void PickRandomPatrolPoint()
-    {
-        for (int i = 0; i < 10; i++)
-        {
-            Vector3 p =
-                transform.position +
-                Random.insideUnitSphere * fallbackPatrolRadius;
-
-            p.y = transform.position.y;
-
-            NavMeshHit hit;
-
-            if (NavMesh.SamplePosition(
-                p,
-                out hit,
-                3f,
-                NavMesh.AllAreas))
-            {
-                agent.SetDestination(hit.position);
-                return;
-            }
-        }
-    }
-
-    int NearestWaypoint(Vector3 pos)
-    {
-        int best = -1;
-
-        float bestDist = float.MaxValue;
-
-        for (int i = 0; i < waypoints.Length; i++)
-        {
-            if (waypoints[i] == null) continue;
-
-            float d =
-                (waypoints[i].position - pos).sqrMagnitude;
-
-            if (d < bestDist)
-            {
-                bestDist = d;
-
-                best = i;
-            }
-        }
-
-        return best;
-    }
-
-    void StartChase()
-    {
         state = State.Chase;
 
+        agent.isStopped = false;
         agent.speed = chaseSpeed;
 
-        timer = 0f;
+        lostTimer = 0f;
+        chaseStartedAt = Time.time;
+        lastSeenAt = Time.time;
 
         lastKnownPos = player.position;
+        nextRepath = 0f;
 
-        if (ChaseStarted != null)
-        {
-            ChaseStarted();
-        }
-    }
+        TrySetDestination(lastKnownPos);
 
-    void StartSearch()
-    {
-        state = State.Search;
-
-        agent.speed = patrolSpeed;
-
-        timer = searchTime;
-
-        PickSearchPoint();
-    }
-
-    void PickSearchPoint()
-    {
-        Vector3 p =
-            lastKnownPos +
-            Random.insideUnitSphere * searchRadius;
-
-        p.y = lastKnownPos.y;
-
-        NavMeshHit hit;
-
-        if (NavMesh.SamplePosition(
-            p,
-            out hit,
-            3f,
-            NavMesh.AllAreas))
-        {
-            agent.SetDestination(hit.position);
-        }
-    }
-
-    void Investigate(Vector3 pos)
-    {
-        state = State.Investigate;
-
-        agent.speed = patrolSpeed * 1.4f;
-
-        lastKnownPos = pos;
-
-        agent.SetDestination(pos);
-    }
-
-    // Called by thrown bottles.
-    public void HearNoise(Vector3 pos)
-    {
-        if (agent == null) agent = GetComponent<NavMeshAgent>();
-
-        if (agent == null || !agent.isActiveAndEnabled || !agent.isOnNavMesh)
+        if (enteringChase)
         {
             if (debugLogs)
             {
-                Debug.LogWarning("HearNoise reached '" + name + "' but it is not ready. " +
-                                 "Either it is not on the NavMesh, or this is NOT the Enemy in the scene " +
-                                 "(maybe a prefab or a duplicate). Click this message to see which object.", this);
+                Debug.Log(
+                    "[ENEMY AI] ELEANOR SPOTTED PLAYER! " +
+                    "Chase started.",
+                    this);
             }
 
-            return;
+            ChaseStarted?.Invoke();
         }
+    }
 
-        if (state == State.Chase) return;
+    private void StartSearch()
+    {
+        state = State.Search;
+        agent.speed = patrolSpeed;
+
+        stateTimer = searchTime;
 
         if (debugLogs)
         {
-            Debug.Log("Enemy '" + name + "' heard a noise and is investigating.", this);
+            Debug.Log(
+                "[ENEMY AI] Lost player. Searching...",
+                this);
         }
 
-        Investigate(pos);
+        TrySetDestination(lastKnownPos);
     }
 
-    // Called by GameManager when a page is collected.
+    private void PickSearchPoint()
+    {
+        Vector3 point =
+            lastKnownPos +
+            UnityEngine.Random.insideUnitSphere *
+            searchRadius;
+
+        point.y = lastKnownPos.y;
+
+        TrySetDestination(point);
+    }
+
+    private void Investigate(Vector3 position)
+    {
+        if (!agent.isOnNavMesh)
+            return;
+
+        state = State.Investigate;
+
+        agent.isStopped = false;
+        agent.speed = patrolSpeed * 1.4f;
+
+        lastKnownPos = position;
+
+        TrySetDestination(position);
+    }
+
+    // Used by bottle / trap noise systems.
+    public void HearNoise(Vector3 position)
+    {
+        if (agent == null)
+            agent = GetComponent<NavMeshAgent>();
+
+        if (agent == null ||
+            !agent.enabled ||
+            !agent.isOnNavMesh ||
+            !enabled)
+        {
+            return;
+        }
+
+        if (waiting || state == State.Chase)
+            return;
+
+        Investigate(position);
+    }
+
+    // Used by GameManager page progression.
     public void Enrage(int pagesCollected)
     {
-        pages = pagesCollected;
+        pages = Mathf.Max(0, pagesCollected);
 
         chaseSpeed =
-            baseChase + speedPerPage * pagesCollected;
+            baseChase + speedPerPage * pages;
 
         patrolSpeed =
-            basePatrol +
-            speedPerPage * 0.5f * pagesCollected;
+            basePatrol + speedPerPage * 0.5f * pages;
+
+        if (agent == null ||
+            !agent.enabled ||
+            !agent.isOnNavMesh)
+        {
+            return;
+        }
 
         if (state == State.Chase)
-        {
             agent.speed = chaseSpeed;
-        }
         else if (state == State.Patrol)
-        {
             agent.speed = patrolSpeed;
-        }
     }
 
-    void OnDrawGizmosSelected()
+    // =====================================================
+    // DEBUG GIZMOS
+    // =====================================================
+
+    private void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.red;
-
         Gizmos.DrawWireSphere(
             transform.position,
             catchDistance);
 
         Gizmos.color = Color.yellow;
-
         Gizmos.DrawWireSphere(
             transform.position,
             sightRange);
+
+        Gizmos.color = Color.cyan;
+
+        Vector3 left =
+            Quaternion.Euler(
+                0f,
+                -sightAngle * 0.5f,
+                0f) * transform.forward;
+
+        Vector3 right =
+            Quaternion.Euler(
+                0f,
+                sightAngle * 0.5f,
+                0f) * transform.forward;
+
+        Gizmos.DrawRay(
+            transform.position + Vector3.up,
+            left * sightRange);
+
+        Gizmos.DrawRay(
+            transform.position + Vector3.up,
+            right * sightRange);
     }
 }

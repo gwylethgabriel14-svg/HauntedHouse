@@ -569,10 +569,13 @@ MonoBehaviour:
   lifetime: 8
   gravityScale: 0.2
   radius: 0.02
-  stuckLifetime: 30
+  stuckLifetime: 10
   hitMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  autoAddStunComponent: 1
+  enemyTag: Enemy
+  showDebugLogs: 1
 --- !u!1 &4003748811905263149
 GameObject:
   m_ObjectHideFlags: 0

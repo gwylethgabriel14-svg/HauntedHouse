@@ -1,3 +1,4 @@
+
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -5,36 +6,50 @@ public class GameManager : MonoBehaviour
 {
     public static GameManager Instance;
 
-    [Header("Objective")]
-    public int totalPages = 4;
+    [Header("Objective - Three Music Notes")]
+    public int totalPages = 3;
     public GameObject keyPrefab;
     public Transform[] keySpawnPoints;
 
     [Header("The House Changes")]
-    public GameObject[] barricades;   // disabled in the scene; one turns on per page
+    public GameObject[] barricades;
 
-    [Header("Music box")]
-    public bool requireMusicBox = true;   // the key only appears after the music box is found
+    [Header("Music Box Quest")]
+    public bool requireMusicBox = true;
 
     [Header("Saving")]
-    public bool autoSaveOnProgress = true;   // saves after each page, the key and the music box (makes CONTINUE work)
+    public bool autoSaveOnProgress = true;
 
     [Header("Refs")]
     public EnemyAI enemy;
+
+    [Header("Enemy Difficulty")]
+    [Tooltip(
+        "Temporarily disable to avoid the " +
+        "EnemyAI.Enrage NullReferenceException."
+    )]
+    public bool enrageEnemyOnPageCollection = false;
 
     [Header("UI")]
     public GameObject winPanel;
     public GameObject losePanel;
 
     public bool HasKey { get; private set; }
-    public bool IsEnded => ended;       // true during the capture / death sequence and on the end screens
-    public int Pages => pages;          // used by the save system
+
+    public bool IsEnded => ended;
+
+    public int Pages => pages;
+
     public bool MusicBoxFound { get; private set; }
 
-    int pages;
-    bool ended;
-    bool keySpawned;
-    GameOverSequence sequence;
+    public bool HasAllMusicNotes =>
+        pages >= Mathf.Max(1, totalPages);
+
+    private int pages;
+    private bool ended;
+    private bool keySpawned;
+
+    private GameOverSequence sequence;
 
     void Awake()
     {
@@ -44,126 +59,415 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        if (enemy == null) enemy = FindFirstObjectByType<EnemyAI>();   // fixes an empty Enemy slot
+        if (enemy == null)
+        {
+            enemy = FindFirstObjectByType<EnemyAI>();
+        }
 
-        // the capture / death sequence (created automatically if you didn't add it)
-        sequence = FindFirstObjectByType<GameOverSequence>();
-        if (sequence == null) sequence = new GameObject("GameOverSequence").AddComponent<GameOverSequence>();
+        sequence =
+            FindFirstObjectByType<GameOverSequence>();
+
+        if (sequence == null)
+        {
+            sequence =
+                new GameObject("GameOverSequence")
+                .AddComponent<GameOverSequence>();
+        }
     }
+
+    // =========================================
+    // MUSIC NOTES COLLECTION
+    // =========================================
 
     public void CollectPage()
     {
+        if (ended || pages >= totalPages)
+            return;
+
         pages++;
-        if (enemy != null) enemy.Enrage(pages);
 
-        // The House Changes: block one route per page
-        int i = pages - 1;
-        if (barricades != null && i < barricades.Length && barricades[i] != null)
-            barricades[i].SetActive(true);
+        Debug.Log(
+            "[GameManager] Music Notes: " +
+            pages + "/" + totalPages
+        );
 
-        if (pages >= totalPages)
+        // Temporary protection against the
+        // existing EnemyAI.Enrage error.
+        ApplyEnemyDifficulty();
+
+        // The house changes after collecting notes.
+        int index = pages - 1;
+
+        if (barricades != null &&
+            index >= 0 &&
+            index < barricades.Length &&
+            barricades[index] != null)
         {
-            if (!requireMusicBox || MusicBoxFound) SpawnKey();
+            barricades[index].SetActive(true);
+        }
+
+        // Key should NOT spawn automatically
+        // when the Music Box is required.
+        if (HasAllMusicNotes &&
+            !requireMusicBox &&
+            !keySpawned)
+        {
+            SpawnKey();
         }
 
         AutoSaveSoon();
     }
 
-    // called by the save system after "Continue"
-    public void RestoreState(int savedPages, bool hasKey)
+    // =========================================
+    // ENEMY DIFFICULTY
+    // =========================================
+
+    private void ApplyEnemyDifficulty()
     {
-        pages = savedPages;
+        if (!enrageEnemyOnPageCollection)
+            return;
+
+        if (enemy == null)
+            return;
+
+        // This method must eventually be fixed
+        // inside EnemyAI1.cs.
+        enemy.Enrage(pages);
+    }
+
+    // =========================================
+    // RESTORE SAVED PROGRESS
+    // =========================================
+
+    public void RestoreState(
+        int savedPages,
+        bool hasKey)
+    {
+        pages = Mathf.Clamp(
+            savedPages,
+            0,
+            Mathf.Max(1, totalPages)
+        );
+
         HasKey = hasKey;
+
         keySpawned = hasKey;
-        if (enemy != null) enemy.Enrage(pages);
+
+        ApplyEnemyDifficulty();
 
         if (barricades != null)
-            for (int i = 0; i < pages && i < barricades.Length; i++)
-                if (barricades[i] != null) barricades[i].SetActive(true);
+        {
+            for (int i = 0; i < pages &&
+                 i < barricades.Length; i++)
+            {
+                if (barricades[i] != null)
+                {
+                    barricades[i].SetActive(true);
+                }
+            }
+        }
+
+        Debug.Log(
+            "[GameManager] Restored " +
+            pages + "/" + totalPages +
+            " music notes."
+        );
     }
 
-    // called by the music box when the player takes it
-    public void CollectMusicBox()
+    // =========================================
+    // MUSIC BOX ACTIVATION
+    // =========================================
+
+    public bool ActivateMusicBox(
+        Vector3 keyPosition,
+        Quaternion keyRotation)
     {
+        if (ended ||
+            MusicBoxFound ||
+            HasKey ||
+            keySpawned)
+        {
+            return false;
+        }
+
+        if (!HasAllMusicNotes)
+        {
+            Debug.LogWarning(
+                "[MusicBox] Not enough music notes: " +
+                pages + "/" + totalPages
+            );
+
+            ShowHint(
+                "Find all 3 music notes.",
+                3f
+            );
+
+            return false;
+        }
+
+        if (keyPrefab == null)
+        {
+            Debug.LogWarning(
+                "[GameManager] Key Prefab is missing!",
+                this
+            );
+
+            return false;
+        }
+
+        // Spawn the key at the Music Box,
+        // not at a random fireplace location.
+        GameObject spawnedKey = Instantiate(
+            keyPrefab,
+            keyPosition,
+            keyRotation
+        );
+
+        if (spawnedKey == null)
+        {
+            Debug.LogError(
+                "[GameManager] Key failed to spawn!"
+            );
+
+            return false;
+        }
+
+        keySpawned = true;
         MusicBoxFound = true;
-        if (pages >= totalPages && !keySpawned) SpawnKey();
+
+        Debug.Log(
+            "[GameManager] Music Box activated! " +
+            "Exit Key spawned at " + keyPosition
+        );
 
         AutoSaveSoon();
+
+        return true;
     }
 
-    // used by the save system
-    public void RestoreMusicBox(bool found) { MusicBoxFound = found; }
-    public void MarkKeySpawned() { keySpawned = true; }
+    // =========================================
+    // OLD MUSIC BOX COMPATIBILITY
+    // =========================================
 
-    void SpawnKey()
+    public void CollectMusicBox()
     {
-        if (keySpawned) return;
-        if (keySpawnPoints == null || keySpawnPoints.Length == 0 || keyPrefab == null)
+        if (!HasAllMusicNotes || MusicBoxFound)
+            return;
+
+        if (keySpawned || HasKey)
         {
-            Debug.LogWarning("[GameManager] Walang key spawn points o key prefab.", this);
+            MusicBoxFound = true;
+            AutoSaveSoon();
             return;
         }
-        Transform p = keySpawnPoints[Random.Range(0, keySpawnPoints.Length)];
-        Instantiate(keyPrefab, p.position, p.rotation);
+
+        if (SpawnKey())
+        {
+            MusicBoxFound = true;
+            AutoSaveSoon();
+        }
+    }
+
+    public void RestoreMusicBox(bool found)
+    {
+        MusicBoxFound = found;
+    }
+
+    public void MarkKeySpawned()
+    {
         keySpawned = true;
     }
 
+    // =========================================
+    // FALLBACK KEY SPAWNING
+    // =========================================
+
+    private bool SpawnKey()
+    {
+        if (keySpawned || HasKey)
+            return false;
+
+        if (keyPrefab == null ||
+            keySpawnPoints == null ||
+            keySpawnPoints.Length == 0)
+        {
+            Debug.LogWarning(
+                "[GameManager] No Key Prefab " +
+                "or Key Spawn Points assigned.",
+                this
+            );
+
+            return false;
+        }
+
+        // Find a valid spawn point.
+        Transform selectedPoint = null;
+
+        foreach (Transform point in keySpawnPoints)
+        {
+            if (point != null)
+            {
+                selectedPoint = point;
+                break;
+            }
+        }
+
+        if (selectedPoint == null)
+        {
+            Debug.LogWarning(
+                "[GameManager] All Key Spawn Points " +
+                "are missing."
+            );
+
+            return false;
+        }
+
+        GameObject key = Instantiate(
+            keyPrefab,
+            selectedPoint.position,
+            selectedPoint.rotation
+        );
+
+        if (key == null)
+            return false;
+
+        keySpawned = true;
+
+        return true;
+    }
+
+    // =========================================
+    // KEY COLLECTION
+    // =========================================
+
     public void CollectKey()
     {
+        if (HasKey)
+            return;
+
         HasKey = true;
+        keySpawned = true;
+
+        Debug.Log(
+            "[GameManager] Exit Key collected! " +
+            "Player can now escape."
+        );
+
         AutoSaveSoon();
     }
 
-    // saves a moment later, so the page / key you just took is already gone from the floor
-    void AutoSaveSoon()
+    // =========================================
+    // AUTO SAVE
+    // =========================================
+
+    private void AutoSaveSoon()
     {
-        if (!autoSaveOnProgress || ended) return;
+        if (!autoSaveOnProgress || ended)
+            return;
+
         CancelInvoke(nameof(DoAutoSave));
+
         Invoke(nameof(DoAutoSave), 0.3f);
     }
 
-    void DoAutoSave()
+    private void DoAutoSave()
     {
-        if (!ended) SaveSystem.Save();
+        if (!ended)
+        {
+            SaveSystem.Save();
+        }
     }
 
-    // Iniwan ko ito para hindi masira ang ibang script na tumatawag ng ShowHint.
-    // Wala na itong ipinapakita sa screen.
-    public void ShowHint(string msg, float seconds = 3f) { }
+    // Kept for compatibility with existing scripts.
+    public void ShowHint(
+        string message,
+        float seconds = 3f)
+    {
+        // Existing UI hook.
+        // No visual message until a hint UI is connected.
+    }
 
-    public void Win() { End(winPanel); }
+    // =========================================
+    // WIN / LOSE SYSTEM
+    // =========================================
 
-    // the main enemy caught the player
+    public void Win()
+    {
+        End(winPanel);
+    }
+
     public void Lose()
     {
-        if (ended) return;
-        if (sequence != null && enemy != null) { ended = true; sequence.PlayCapture(enemy); }
-        else End(losePanel);
+        if (ended)
+            return;
+
+        if (sequence != null && enemy != null)
+        {
+            ended = true;
+            sequence.PlayCapture(enemy);
+        }
+        else
+        {
+            End(losePanel);
+        }
     }
 
-    // the player lost the last life
     public void PlayerDied()
     {
-        if (ended) return;
-        if (sequence != null) { ended = true; sequence.PlayDeath(); }
-        else End(losePanel);
+        if (ended)
+            return;
+
+        if (sequence != null)
+        {
+            ended = true;
+            sequence.PlayDeath();
+        }
+        else
+        {
+            End(losePanel);
+        }
     }
 
-    void End(GameObject panel)
+    private void End(GameObject panel)
     {
-        if (ended) return;
+        if (ended)
+            return;
+
         ended = true;
-        if (panel == winPanel) { SaveSystem.DeleteSave(); PlayerHealth.ResetPersisted(); }   // you escaped: start fresh next time
-        if (panel != null) panel.SetActive(true);
-        else Debug.LogWarning("[GameManager] Walang naka-assign na Win/Lose Panel sa inspector.", this);
+
+        if (panel == winPanel)
+        {
+            SaveSystem.DeleteSave();
+            PlayerHealth.ResetPersisted();
+        }
+
+        if (panel != null)
+        {
+            panel.SetActive(true);
+        }
+        else
+        {
+            Debug.LogWarning(
+                "[GameManager] Win/Lose Panel " +
+                "is not assigned!",
+                this
+            );
+        }
+
         Time.timeScale = 0f;
+
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
 
-    // Hook this to the Restart button's OnClick
+    // =========================================
+    // RESTART
+    // =========================================
+
     public void Restart()
     {
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        SceneManager.LoadScene(
+            SceneManager.GetActiveScene().buildIndex
+        );
     }
 }
